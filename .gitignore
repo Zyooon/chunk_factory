@@ -21,8 +21,7 @@ uv.lock
 !.env.example
 
 # Generated crawler data
-crawled_data/
-cleaned_data/
+data/
 
 # Logs
 *.log

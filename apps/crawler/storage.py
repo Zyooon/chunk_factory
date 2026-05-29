@@ -11,7 +11,7 @@ from apps.crawler.config import (
 )
 from apps.crawler.utils import get_collected_at, sanitize_filename
 
-CRAWL_LOG_PATH = BASE_DIR / "crawl_log.json"
+CRAWL_LOG_PATH = BASE_DIR / "data" / "logs" / "crawl_log.json"
 
 
 # ============================================================

@@ -34,7 +34,7 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 # 저장 경로 설정
 # ------------------------------------------------------------
 
-OUTPUT_DIR = BASE_DIR / "crawled_data"
+OUTPUT_DIR = BASE_DIR / "data" / "crawled"
 
 NAVER_BLOG_OUTPUT_DIR = OUTPUT_DIR / "naver_blog"
 

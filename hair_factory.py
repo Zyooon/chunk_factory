@@ -46,9 +46,9 @@ client = genai.Client()
 
 # ── 경로 설정 ───────────────────────────────────────────────
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-INPUT_DIR = Path("./crawled_data")
-OUTPUT_FILE = Path(f"./cleaned_data/cleaned_rag_data_{timestamp}.json")
-PROCESSED_LOG_FILE = Path("./processed_log.json")
+INPUT_DIR = Path("./data/crawled")
+OUTPUT_FILE = Path(f"./data/cleaned/cleaned_rag_data_{timestamp}.json")
+PROCESSED_LOG_FILE = Path("./data/logs/processed_log.json")
 
 # ── API 설정 ────────────────────────────────────────────────
 MODEL_NAME = "gemini-2.5-flash"
@@ -67,7 +67,7 @@ SYSTEM_PROMPT = """
 3. 특정 인물 언급 금지: 원문에 특정 연예인이나 인플루언서의 이름이 있더라도, 결과물(JSON)에는 법적 보호를 위해 절대 포함하지 마세요. 오직 스타일의 조형적 특징과 원리만 설명하세요.
 
 [데이터 매핑 규격 (Mapping Rules)]
-다음 지정된 카테고리 내에서만 값을 매핑하세요. 원문에 정확한 단어가 없더라도 문맥을 분석하여 가장 적합한 값으로 추론하세요.
+다음 지정된 카테고리 내에서만 값을 매핑하세요.
 - category: "hair" 고정
 - gender: "여성" 또는 "남성" (문맥 파악, 기본 "여성")
 - face_shape: 반드시 ["계란형", "둥근형", "각진형", "장방형", "역삼각형"] 중 1개 선택
@@ -79,6 +79,10 @@ SYSTEM_PROMPT = """
         > 짧은형, 동그란형 ➡️ "둥근형"
 - face_proportion: ["균형", "상안부_긴형", "중안부_긴형", "하안부_긴형"] 중 1개 선택
 
+[추론 제한 규칙]
+원문에 특정 얼굴형, 스타일, 추천/비추천 이유가 명확히 연결되어 있지 않다면 새로운 추천 조합을 만들지 마세요.
+단순히 스타일명만 등장하고 조건이 부족한 경우에는 JSON 객체로 만들지 않습니다.
+
 [출력 포맷]
 분석된 내용을 바탕으로 아래의 JSON 배열(Array) 형식만 엄격하게 출력하세요. 마크다운 코드 블록(```json) 내부에 작성하며, 그 외에 어떠한 인사말이나 부가 설명도 덧붙이지 마세요. 하나의 원문에서 여러 개의 얼굴형 조건이 분석된다면 JSON 객체(Object)를 배열 안에 여러 개 추가하세요.
 
@@ -87,15 +91,41 @@ SYSTEM_PROMPT = """
     "category": "hair",
     "gender": "여성",
     "conditions": {
-      "face_shape": "긴형",
+      "face_shape": "장방형",
       "face_proportion": "중안부_긴형"
     },
-    "recommended_styles": ["시스루 뱅 굵은 히피펌", "사이드 뱅 젤리펌"],
-    "worst_styles": ["5:5 가르마 긴 생머리", "풀 뱅 슬릭컷"],
-    "expert_reasoning_positive": "새롭게 창작된 추천 이유 설명(~해요 말투로 2~3문장)",
-    "expert_reasoning_negative": "새롭게 창작된 워스트 이유 설명(~해요 말투로 1~2문장)"
+    "recommended_styles": [
+      {
+        "style_name": "시스루 뱅 히피펌",
+        "style_group": "",
+        "style_features": ["가벼운 앞머리", "풍성한 컬", "세로 길이 분산"]
+      }
+    ],
+    "worst_styles": [
+      {
+        "style_name": "5:5 가르마 긴 생머리",
+        "style_group": "",
+        "style_features": ["중앙 가르마", "긴 직선 실루엣", "세로감 강조"]
+      }
+    ],
+    "expert_reasoning_positive": "장방형 얼굴은 세로 길이가 강조되기 쉬워서, 앞머리와 컬감으로 시선을 부드럽게 분산해 주는 스타일이 잘 어울려요. 가벼운 앞머리와 풍성한 웨이브를 더하면 얼굴 비율이 한층 안정적으로 보여요.",
+    "expert_reasoning_negative": "정중앙 가르마와 긴 생머리는 얼굴의 세로선을 더 길어 보이게 만들 수 있어요. 특히 볼륨 없이 차분하게 떨어지는 스타일은 긴 인상을 더 강조할 수 있어 주의가 필요해요."
   }
 ]
+
+[헤어스타일 필드 구조화 규칙]
+recommended_styles와 worst_styles는 문자열 배열이 아니라 객체 배열로 출력하세요.
+
+각 스타일 객체는 아래 필드를 포함합니다.
+
+- style_name: 원문에서 확인된 스타일을 서비스에서 사용할 수 있도록 짧고 일반적인 명칭으로 재작성한 값
+- style_group: 추후 스타일 그룹 분류를 위해 비워두는 필드. 현재는 반드시 빈 문자열("")로 출력
+- style_features: 해당 스타일의 조형적 특징을 2~4개의 짧은 키워드로 작성
+
+주의:
+- style_name에는 연예인명, 인플루언서명, 브랜드명, 블로그 특유의 표현, 감탄사, 비유를 넣지 마세요.
+- style_name은 원문 표현을 그대로 복사하지 말고, 뷰티 스타일명으로 자연스럽게 정규화하세요.
+- style_group은 아직 분류 체계가 확정되지 않았으므로 절대 임의로 채우지 말고 빈 문자열("")로 둡니다.
 """
 
 
