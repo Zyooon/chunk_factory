@@ -48,10 +48,12 @@ client = genai.Client()
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 INPUT_DIR = Path("./crawled_data")
 OUTPUT_FILE = Path(f"./cleaned_data/cleaned_rag_data_{timestamp}.json")
+PROCESSED_LOG_FILE = Path("./processed_log.json")
 
 # ── API 설정 ────────────────────────────────────────────────
 MODEL_NAME = "gemini-2.5-flash"
 SLEEP_BETWEEN_REQUESTS = 3  # 초 (Free Tier Rate Limit 방지)
+MAX_CHARS_PER_BATCH = 30_000
 
 # ── 마스터 프롬프트 ─────────────────────────────────────────
 SYSTEM_PROMPT = """
@@ -97,10 +99,51 @@ SYSTEM_PROMPT = """
 """
 
 
-def process_file(txt_path: Path) -> list[dict]:
-    """단일 .txt 파일을 읽어 Gemini API로 처리 후 파싱된 항목 리스트를 반환."""
-    text = txt_path.read_text(encoding="utf-8")
-    full_prompt = f"{SYSTEM_PROMPT}\n\n[분석할 스크립트 원문]\n{text}"
+def load_processed_log() -> dict:
+    if not PROCESSED_LOG_FILE.exists():
+        return {}
+    try:
+        return json.loads(PROCESSED_LOG_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_processed_log(log: dict) -> None:
+    PROCESSED_LOG_FILE.write_text(
+        json.dumps(log, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def build_batches(txt_files: list[Path]) -> list[list[Path]]:
+    batches: list[list[Path]] = []
+    current_batch: list[Path] = []
+    current_chars = 0
+
+    for txt_path in txt_files:
+        file_chars = len(txt_path.read_text(encoding="utf-8"))
+        if current_batch and current_chars + file_chars > MAX_CHARS_PER_BATCH:
+            batches.append(current_batch)
+            current_batch = [txt_path]
+            current_chars = file_chars
+        else:
+            current_batch.append(txt_path)
+            current_chars += file_chars
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
+
+
+def process_batch(batch_files: list[Path]) -> list[dict]:
+    """배치 내 파일들을 이어붙여 Gemini API로 처리 후 파싱된 항목 리스트를 반환."""
+    parts = []
+    for i, txt_path in enumerate(batch_files, start=1):
+        text = txt_path.read_text(encoding="utf-8")
+        parts.append(f"[파일 {i}: {txt_path.name}]\n{text}")
+    batch_text = "\n".join(parts)
+    full_prompt = f"{SYSTEM_PROMPT}\n\n[분석할 스크립트 원문]\n{batch_text}"
 
     response = client.models.generate_content(
         model=MODEL_NAME,
@@ -113,35 +156,52 @@ def process_file(txt_path: Path) -> list[dict]:
 
 
 def main():
-    # input_texts/ 폴더가 없으면 생성 후 안내
     if not INPUT_DIR.exists():
         INPUT_DIR.mkdir(parents=True)
         print(f"[안내] {INPUT_DIR} 폴더를 생성했습니다. .txt 파일을 넣고 다시 실행하세요.")
         return
 
-    txt_files = sorted(INPUT_DIR.rglob("*.txt"))
-    if not txt_files:
+    all_txt_files = sorted(INPUT_DIR.rglob("*.txt"))
+    if not all_txt_files:
         print(f"[안내] {INPUT_DIR} 폴더에 처리할 .txt 파일이 없습니다.")
         return
 
+    processed_log = load_processed_log()
+    new_files = [f for f in all_txt_files if f.name not in processed_log]
+    skipped_count = len(all_txt_files) - len(new_files)
+
+    print(f"[시작] 새로 처리할 파일 {len(new_files)}개 / 이미 처리된 파일 {skipped_count}개 건너뜀\n")
+
+    if not new_files:
+        print("[안내] 새로 처리할 파일이 없습니다.")
+        return
+
+    batches = build_batches(new_files)
     master_list: list[dict] = []
-    total = len(txt_files)
+    total_batches = len(batches)
 
-    print(f"[시작] 총 {total}개 파일 처리를 시작합니다.\n")
-
-    for idx, txt_path in enumerate(txt_files, start=1):
-        print(f"[{idx}/{total}] 처리 중: {txt_path.name}")
+    for batch_idx, batch_files in enumerate(batches, start=1):
+        file_names = ", ".join(f.name for f in batch_files)
+        print(f"[배치 {batch_idx}/{total_batches}] 처리 중: {file_names}")
         try:
-            entries = process_file(txt_path)
+            entries = process_batch(batch_files)
             master_list.extend(entries)
+
+            now_str = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            for txt_path in batch_files:
+                processed_log[txt_path.name] = {
+                    "processed_at": now_str,
+                    "extracted_count": len(entries),
+                }
+            save_processed_log(processed_log)
+
             print(f"  → {len(entries)}개 항목 추출 완료 (누적: {len(master_list)}개)")
         except json.JSONDecodeError as e:
-            print(f"  [오류] JSON 파싱 실패 ({txt_path.name}): {e}")
+            print(f"  [오류] JSON 파싱 실패 (배치 {batch_idx}): {e}")
         except Exception as e:
-            print(f"  [오류] API 호출 또는 처리 실패 ({txt_path.name}): {type(e).__name__}: {e}")
+            print(f"  [오류] API 호출 또는 처리 실패 (배치 {batch_idx}): {type(e).__name__}: {e}")
 
-        # 마지막 파일이 아닐 때만 대기
-        if idx < total:
+        if batch_idx < total_batches:
             print(f"  → Rate Limit 방지: {SLEEP_BETWEEN_REQUESTS}초 대기 중...")
             time.sleep(SLEEP_BETWEEN_REQUESTS)
 

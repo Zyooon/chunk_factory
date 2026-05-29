@@ -14,7 +14,13 @@ from apps.crawler.config import (
     REQUEST_TIMEOUT,
     USER_AGENT,
 )
-from apps.crawler.storage import save_text_document
+from apps.crawler.storage import (
+    add_crawl_log_entry,
+    is_already_crawled,
+    load_crawl_log,
+    save_crawl_log,
+    save_text_document,
+)
 from apps.crawler.utils import get_collected_at, normalize_whitespace, polite_sleep
 
 
@@ -450,7 +456,7 @@ def parse_naver_blog_article(url: str, html: str) -> NaverBlogArticle | None:
     )
 
 
-def collect_single_naver_blog(url: str) -> bool:
+def collect_single_naver_blog(url: str, log: dict) -> bool:
     """
     네이버 블로그 글 URL 1개를 수집하고 txt 파일로 저장합니다.
     """
@@ -489,10 +495,13 @@ def collect_single_naver_blog(url: str) -> bool:
 
     print(f"[NAVER] saved: {saved_path}")
 
+    add_crawl_log_entry(url, "naver_blog", article.title, log)
+    save_crawl_log(log)
+
     return True
 
 
-def collect_naver_blogs_from_direct_urls() -> tuple[int, int]:
+def collect_naver_blogs_from_direct_urls(log: dict) -> tuple[int, int]:
     """
     config.py의 NAVER_BLOG_URLS에 직접 넣은 URL들을 수집합니다.
 
@@ -507,7 +516,11 @@ def collect_naver_blogs_from_direct_urls() -> tuple[int, int]:
     fail_count = 0
 
     for url in NAVER_BLOG_URLS:
-        if collect_single_naver_blog(url):
+        if is_already_crawled(url, log):
+            print(f"[NAVER][SKIP] already crawled: {url}")
+            continue
+
+        if collect_single_naver_blog(url, log):
             success_count += 1
         else:
             fail_count += 1
@@ -517,7 +530,7 @@ def collect_naver_blogs_from_direct_urls() -> tuple[int, int]:
     return success_count, fail_count
 
 
-def collect_naver_blogs_from_search() -> tuple[int, int]:
+def collect_naver_blogs_from_search(log: dict) -> tuple[int, int]:
     """
     config.py의 NAVER_BLOG_SEARCH_KEYWORDS를 기준으로 검색 수집을 수행합니다.
 
@@ -537,13 +550,17 @@ def collect_naver_blogs_from_search() -> tuple[int, int]:
         article_urls = search_naver_blog_article_urls(keyword)
 
         for article_url in article_urls:
+            if is_already_crawled(article_url, log):
+                print(f"[NAVER][SKIP] already crawled: {article_url}")
+                continue
+
             if article_url in global_seen_urls:
                 print(f"[NAVER][SKIP] duplicated url: {article_url}")
                 continue
 
             global_seen_urls.add(article_url)
 
-            if collect_single_naver_blog(article_url):
+            if collect_single_naver_blog(article_url, log):
                 success_count += 1
             else:
                 fail_count += 1
@@ -565,8 +582,9 @@ def collect_naver_blogs() -> tuple[int, int]:
     Returns:
         (전체 성공 개수, 전체 실패 개수)
     """
-    direct_success, direct_fail = collect_naver_blogs_from_direct_urls()
-    search_success, search_fail = collect_naver_blogs_from_search()
+    log = load_crawl_log()
+    direct_success, direct_fail = collect_naver_blogs_from_direct_urls(log)
+    search_success, search_fail = collect_naver_blogs_from_search(log)
 
     total_success = direct_success + search_success
     total_fail = direct_fail + search_fail

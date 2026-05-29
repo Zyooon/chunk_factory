@@ -22,7 +22,13 @@ from apps.crawler.config import (
     YOUTUBE_SEARCH_VIDEO_DURATION,
     YOUTUBE_TRANSCRIPT_LANGUAGES,
 )
-from apps.crawler.storage import save_text_document
+from apps.crawler.storage import (
+    add_crawl_log_entry,
+    is_already_crawled,
+    load_crawl_log,
+    save_crawl_log,
+    save_text_document,
+)
 from apps.crawler.utils import get_collected_at, normalize_whitespace, polite_sleep
 
 
@@ -426,13 +432,15 @@ def normalize_transcript_text(transcript_segments: list[dict[str, Any]]) -> str:
     return normalize_whitespace(merged_text)
 
 
-def collect_single_youtube_video(video: YouTubeVideoSearchResult) -> bool:
+def collect_single_youtube_video(video: YouTubeVideoSearchResult, log: dict) -> bool:
     """
     검색된 유튜브 영상 하나의 자막을 수집하고 txt 파일로 저장합니다.
 
     Args:
         video:
             YouTube Data API 검색 결과 영상 객체입니다.
+        log:
+            crawl_log dict입니다.
 
     Returns:
         저장 성공 여부입니다.
@@ -474,6 +482,9 @@ def collect_single_youtube_video(video: YouTubeVideoSearchResult) -> bool:
 
     print(f"[YOUTUBE] saved: {saved_path}")
 
+    add_crawl_log_entry(video.url, "youtube", video.title, log)
+    save_crawl_log(log)
+
     return True
 
 
@@ -491,6 +502,7 @@ def collect_youtube_transcripts() -> tuple[int, int]:
 
     success_count = 0
     fail_count = 0
+    log = load_crawl_log()
     global_seen_video_ids: set[str] = set()
 
     for keyword in YOUTUBE_SEARCH_KEYWORDS:
@@ -501,13 +513,17 @@ def collect_youtube_transcripts() -> tuple[int, int]:
             continue
 
         for video in videos:
+            if is_already_crawled(video.url, log):
+                print(f"[YOUTUBE][SKIP] already crawled: {video.url}")
+                continue
+
             if video.video_id in global_seen_video_ids:
                 print(f"[YOUTUBE][SKIP] duplicated video_id={video.video_id}")
                 continue
 
             global_seen_video_ids.add(video.video_id)
 
-            if collect_single_youtube_video(video):
+            if collect_single_youtube_video(video, log):
                 success_count += 1
             else:
                 fail_count += 1

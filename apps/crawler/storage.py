@@ -1,13 +1,17 @@
+import json
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from apps.crawler.config import (
+    BASE_DIR,
     NAVER_BLOG_OUTPUT_DIR,
     OUTPUT_DIR,
     YOUTUBE_OUTPUT_DIR,
 )
-from apps.crawler.utils import sanitize_filename
+from apps.crawler.utils import get_collected_at, sanitize_filename
+
+CRAWL_LOG_PATH = BASE_DIR / "crawl_log.json"
 
 
 # ============================================================
@@ -235,3 +239,32 @@ def save_text_document(
     file_path.write_text(document_text, encoding="utf-8")
 
     return file_path
+
+
+def load_crawl_log() -> dict:
+    if not CRAWL_LOG_PATH.exists():
+        return {}
+    try:
+        return json.loads(CRAWL_LOG_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_crawl_log(log: dict) -> None:
+    CRAWL_LOG_PATH.write_text(
+        json.dumps(log, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def is_already_crawled(url: str, log: dict) -> bool:
+    return url in log
+
+
+def add_crawl_log_entry(url: str, source_type: str, title: str, log: dict) -> dict:
+    log[url] = {
+        "crawled_at": get_collected_at(),
+        "source_type": source_type,
+        "title": title,
+    }
+    return log
