@@ -1,0 +1,15 @@
+[project]
+name = "chunk-factory"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "django>=5.2.14",
+    "google-genai>=2.6.0",
+    "lxml>=6.1.1",
+    "python-dotenv>=1.0.0",
+    "requests>=2.34.2",
+    "youtube-transcript-api>=1.2.4",
+]
