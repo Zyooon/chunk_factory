@@ -14,13 +14,13 @@ def run_crawler_app() -> None:
     print_output_directories()
 
     naver_success_count, naver_fail_count = collect_naver_blogs()
-    youtube_success_count, youtube_fail_count = collect_youtube_transcripts()
+    # youtube_success_count, youtube_fail_count = collect_youtube_transcripts()
 
     print("crawler app summary:")
     print(f"- naver success: {naver_success_count}")
     print(f"- naver fail: {naver_fail_count}")
-    print(f"- youtube success: {youtube_success_count}")
-    print(f"- youtube fail: {youtube_fail_count}")
+    # print(f"- youtube success: {youtube_success_count}")
+    # print(f"- youtube fail: {youtube_fail_count}")
 
     print("crawler app finished.")
 

@@ -180,3 +180,47 @@ cleaned_data/
 - 네이버 블로그 크롤링은 요청 간 2~3초 딜레이가 적용됩니다. 과도한 수집은 자제해 주세요.
 - YouTube Data API는 일일 무료 할당량(10,000 units)이 있습니다. 키워드당 수집 수를 적게 유지하는 것을 권장합니다.
 - Gemini API Free Tier 사용 시 분당 요청 수 제한이 있습니다. `SLEEP_BETWEEN_REQUESTS` 값을 올려서 조절할 수 있습니다.
+
+---
+
+## RAG CLI 프로토타입
+
+`cleaned_data/`의 정제 JSON을 ChromaDB에 임베딩하고, CLI에서 헤어스타일을 질문할 수 있습니다.
+
+### 필요 환경변수 (`.env`)
+
+```
+GEMINI_API_KEY=your_key_here
+
+# 아래는 기본값이 있으므로 생략 가능
+CHROMA_DIR=./vector_data/chroma
+CHROMA_COLLECTION_NAME=beauty_hair_rag
+GEMINI_EMBEDDING_MODEL=models/text-embedding-004
+GEMINI_CHAT_MODEL=gemini-1.5-flash
+```
+
+### 실행 순서
+
+```bash
+# 1. 의존성 설치
+uv sync
+
+# 2. 크롤링 및 정제 (이미 완료했다면 건너뜀)
+uv run main.py
+uv run hair_factory.py
+
+# 3. ChromaDB에 임베딩 적재 (최신 cleaned JSON을 자동으로 읽음)
+uv run python -m apps.rag.ingest
+
+# 4. CLI 챗봇 실행
+uv run python -m apps.rag.cli_chat
+```
+
+### 입력 예시
+
+```
+성별: 남성
+얼굴형: 둥근형
+삼정 비율: 균형
+질문: 나한테 어울리는 헤어스타일 추천해줘
+```
