@@ -456,7 +456,7 @@ def parse_naver_blog_article(url: str, html: str) -> NaverBlogArticle | None:
     )
 
 
-def collect_single_naver_blog(url: str, log: dict) -> bool:
+def collect_single_naver_blog(url: str, log: dict, keyword: str = "") -> bool:
     """
     네이버 블로그 글 URL 1개를 수집하고 txt 파일로 저장합니다.
     """
@@ -491,6 +491,7 @@ def collect_single_naver_blog(url: str, log: dict) -> bool:
         extra_metadata={
             "collector": "naver_blog",
         },
+        keyword=keyword,
     )
 
     print(f"[NAVER] saved: {saved_path}")
@@ -560,7 +561,7 @@ def collect_naver_blogs_from_search(log: dict) -> tuple[int, int]:
 
             global_seen_urls.add(article_url)
 
-            if collect_single_naver_blog(article_url, log):
+            if collect_single_naver_blog(article_url, log, keyword=keyword):
                 success_count += 1
             else:
                 fail_count += 1

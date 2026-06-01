@@ -432,7 +432,9 @@ def normalize_transcript_text(transcript_segments: list[dict[str, Any]]) -> str:
     return normalize_whitespace(merged_text)
 
 
-def collect_single_youtube_video(video: YouTubeVideoSearchResult, log: dict) -> bool:
+def collect_single_youtube_video(
+    video: YouTubeVideoSearchResult, log: dict, keyword: str = ""
+) -> bool:
     """
     검색된 유튜브 영상 하나의 자막을 수집하고 txt 파일로 저장합니다.
 
@@ -441,6 +443,8 @@ def collect_single_youtube_video(video: YouTubeVideoSearchResult, log: dict) -> 
             YouTube Data API 검색 결과 영상 객체입니다.
         log:
             crawl_log dict입니다.
+        keyword:
+            검색 키워드입니다. 키워드 이름의 서브폴더에 저장됩니다.
 
     Returns:
         저장 성공 여부입니다.
@@ -478,6 +482,7 @@ def collect_single_youtube_video(video: YouTubeVideoSearchResult, log: dict) -> 
             "language_priority": language_priority,
             "duration_seconds": str(video.duration_seconds),
         },
+        keyword=keyword,
     )
 
     print(f"[YOUTUBE] saved: {saved_path}")
@@ -523,7 +528,7 @@ def collect_youtube_transcripts() -> tuple[int, int]:
 
             global_seen_video_ids.add(video.video_id)
 
-            if collect_single_youtube_video(video, log):
+            if collect_single_youtube_video(video, log, keyword=keyword):
                 success_count += 1
             else:
                 fail_count += 1

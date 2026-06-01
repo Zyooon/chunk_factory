@@ -61,13 +61,16 @@ def print_output_directories() -> None:
     print(f"YouTube output: {YOUTUBE_OUTPUT_DIR}")
 
 
-def get_output_dir_by_source(source_type: str) -> Path:
+def get_output_dir_by_source(source_type: str, keyword: str = "") -> Path:
     """
     source_type에 따라 저장 폴더를 반환합니다.
+    keyword가 있으면 키워드 이름의 서브폴더를 반환합니다.
 
     Args:
         source_type:
             "naver_blog" 또는 "youtube"만 허용합니다.
+        keyword:
+            검색 키워드입니다. 비어 있으면 "direct" 서브폴더를 사용합니다.
 
     Returns:
         저장 폴더 Path 객체입니다.
@@ -76,13 +79,17 @@ def get_output_dir_by_source(source_type: str) -> Path:
         ValueError:
             지원하지 않는 source_type이 들어온 경우 발생합니다.
     """
+    from apps.crawler.utils import sanitize_filename
+
     if source_type == "naver_blog":
-        return NAVER_BLOG_OUTPUT_DIR
+        base = NAVER_BLOG_OUTPUT_DIR
+    elif source_type == "youtube":
+        base = YOUTUBE_OUTPUT_DIR
+    else:
+        raise ValueError(f"Unsupported source_type: {source_type}")
 
-    if source_type == "youtube":
-        return YOUTUBE_OUTPUT_DIR
-
-    raise ValueError(f"Unsupported source_type: {source_type}")
+    folder_name = sanitize_filename(keyword) if keyword else "direct"
+    return base / folder_name
 
 
 def make_date_prefix() -> str:
@@ -196,6 +203,7 @@ def save_text_document(
     collected_at: str,
     body_text: str,
     extra_metadata: dict[str, str] | None = None,
+    keyword: str = "",
 ) -> Path:
     """
     크롤링 결과를 txt 파일로 저장합니다.
@@ -219,10 +227,13 @@ def save_text_document(
         extra_metadata:
             선택 추가 메타데이터입니다.
 
+        keyword:
+            검색 키워드입니다. 키워드 이름의 서브폴더에 저장됩니다.
+
     Returns:
         저장된 파일 경로입니다.
     """
-    output_dir = get_output_dir_by_source(source_type)
+    output_dir = get_output_dir_by_source(source_type, keyword)
     ensure_directory(output_dir)
 
     file_path = build_file_path(output_dir, title)
