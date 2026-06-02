@@ -1,6 +1,7 @@
 import re
 import html
 from dataclasses import dataclass
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import requests
@@ -11,7 +12,10 @@ from youtube_transcript_api import (
 )
 
 from apps.crawler.config import (
+    CRAWL_PERIOD_DAYS,
+    CRAWL_SORT_MODE,
     MIN_TEXT_LENGTH,
+    RELEVANCE_LANGUAGE,
     REQUEST_TIMEOUT,
     USER_AGENT,
     YOUTUBE_API_KEY,
@@ -51,6 +55,31 @@ from apps.crawler.utils import get_collected_at, normalize_whitespace, polite_sl
 
 YOUTUBE_SEARCH_API_URL = "https://www.googleapis.com/youtube/v3/search"
 YOUTUBE_VIDEOS_API_URL = "https://www.googleapis.com/youtube/v3/videos"
+
+_YOUTUBE_ORDER_MAP = {
+    "relevance": "relevance",
+    "latest": "date",
+    "popular": "viewCount",
+}
+
+
+def _get_youtube_order_param() -> str:
+    """CRAWL_SORT_MODE를 YouTube API order 파라미터 값으로 변환합니다.
+
+    CRAWL_SORT_MODE가 매핑 테이블에 없으면 YOUTUBE_SEARCH_ORDER(기존 설정값)로 fallback합니다.
+    """
+    return _YOUTUBE_ORDER_MAP.get(CRAWL_SORT_MODE, YOUTUBE_SEARCH_ORDER)
+
+
+def _get_published_after_param() -> str | None:
+    """CRAWL_PERIOD_DAYS를 YouTube API publishedAfter 파라미터 값(ISO 8601)으로 변환합니다.
+
+    CRAWL_PERIOD_DAYS가 0이면 None을 반환해 파라미터를 추가하지 않습니다.
+    """
+    if not CRAWL_PERIOD_DAYS:
+        return None
+    cutoff = datetime.now(timezone.utc) - timedelta(days=CRAWL_PERIOD_DAYS)
+    return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @dataclass
@@ -188,18 +217,28 @@ def search_youtube_videos(keyword: str) -> list[YouTubeVideoSearchResult]:
 
     print(f"[YOUTUBE][SEARCH] keyword={keyword}")
 
-    params = {
+    order_param = _get_youtube_order_param()
+    published_after = _get_published_after_param()
+
+    print(f"[YOUTUBE][SEARCH] sort_mode={CRAWL_SORT_MODE} → order={order_param}")
+    if published_after:
+        print(f"[YOUTUBE][SEARCH] period_limit={CRAWL_PERIOD_DAYS}days → publishedAfter={published_after}")
+
+    params: dict[str, Any] = {
         "part": "snippet",
         "q": keyword,
         "type": "video",
         "maxResults": YOUTUBE_SEARCH_MAX_RESULTS_PER_KEYWORD,
-        "order": YOUTUBE_SEARCH_ORDER,
+        "order": order_param,
         "key": YOUTUBE_API_KEY,
         "regionCode": "KR",
-        "relevanceLanguage": "ko",
+        "relevanceLanguage": RELEVANCE_LANGUAGE,
         "safeSearch": "moderate",
         "videoDuration": YOUTUBE_SEARCH_VIDEO_DURATION,
     }
+
+    if published_after:
+        params["publishedAfter"] = published_after
 
     headers = {
         "User-Agent": USER_AGENT,

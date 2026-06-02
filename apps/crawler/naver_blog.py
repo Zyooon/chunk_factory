@@ -1,3 +1,4 @@
+import random
 import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
@@ -6,12 +7,14 @@ import requests
 from bs4 import BeautifulSoup
 
 from apps.crawler.config import (
+    CRAWL_SORT_MODE,
     MIN_TEXT_LENGTH,
     NAVER_BLOG_MAX_ARTICLES_PER_KEYWORD,
     NAVER_BLOG_SEARCH_KEYWORDS,
     NAVER_BLOG_SEARCH_MAX_PAGES,
     NAVER_BLOG_URLS,
     REQUEST_TIMEOUT,
+    USE_RANDOM_START,
     USER_AGENT,
 )
 from apps.crawler.storage import (
@@ -88,7 +91,23 @@ def fetch_html(url: str) -> str | None:
         return None
 
 
-def build_naver_blog_search_url(keyword: str, page: int = 1) -> str:
+_NAVER_SORT_MAP = {
+    "relevance": "0",
+    "latest": "1",
+    "popular": "0",  # 네이버 웹 검색은 인기순 미지원 → 관련도순 fallback
+}
+
+
+def _get_naver_sort_param() -> str:
+    """CRAWL_SORT_MODE를 네이버 웹 검색 sort 파라미터 값으로 변환합니다."""
+    return _NAVER_SORT_MAP.get(CRAWL_SORT_MODE, "0")
+
+
+def build_naver_blog_search_url(
+    keyword: str,
+    page: int = 1,
+    page_offset: int = 0,
+) -> str:
     """
     네이버 블로그 검색 URL을 생성합니다.
 
@@ -100,15 +119,20 @@ def build_naver_blog_search_url(keyword: str, page: int = 1) -> str:
             검색 결과 페이지 번호입니다.
             네이버 검색은 start 파라미터가 1, 11, 21... 형태로 증가합니다.
 
+        page_offset:
+            시작 페이지에 더할 오프셋입니다.
+            USE_RANDOM_START=True일 때 무작위 값이 전달됩니다.
+
     Returns:
         네이버 블로그 검색 URL입니다.
     """
-    start = 1 + ((page - 1) * 10)
+    start = 1 + ((page - 1 + page_offset) * 10)
 
     params = {
         "where": "blog",
         "query": keyword,
         "start": start,
+        "sort": _get_naver_sort_param(),
     }
 
     return "https://search.naver.com/search.naver?" + urlencode(params)
@@ -249,11 +273,21 @@ def search_naver_blog_article_urls(keyword: str) -> list[str]:
     """
     print(f"[NAVER][SEARCH] keyword={keyword}")
 
+    # USE_RANDOM_START=True이면 0~4 중 랜덤 오프셋(페이지 단위)을 적용해
+    # 1, 11, 21, 31, 41 중 무작위 위치부터 수집을 시작합니다.
+    page_offset = random.randint(0, 4) if USE_RANDOM_START else 0
+    if page_offset:
+        print(f"[NAVER][SEARCH] random start applied: start={(page_offset * 10) + 1}")
+
     found_urls: list[str] = []
     seen: set[str] = set()
 
     for page in range(1, NAVER_BLOG_SEARCH_MAX_PAGES + 1):
-        search_url = build_naver_blog_search_url(keyword=keyword, page=page)
+        search_url = build_naver_blog_search_url(
+            keyword=keyword,
+            page=page,
+            page_offset=page_offset,
+        )
 
         print(f"[NAVER][SEARCH] page={page}, url={search_url}")
 
