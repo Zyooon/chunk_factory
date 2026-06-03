@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -9,133 +10,97 @@ from apps.crawler.config import (
     OUTPUT_DIR,
     YOUTUBE_OUTPUT_DIR,
 )
-from apps.crawler.utils import get_collected_at, sanitize_filename
+from apps.crawler.utils import get_collected_at
 
 CRAWL_LOG_PATH = BASE_DIR / "data" / "logs" / "crawl_log.json"
+
+BATCH_SIZE = 10
+
+_PLATFORM_DIR: dict[str, Path] = {
+    "naver_blog": NAVER_BLOG_OUTPUT_DIR,
+    "youtube":    YOUTUBE_OUTPUT_DIR,
+}
+
+_PLATFORM_LABEL: dict[str, str] = {
+    "naver_blog": "naver",
+    "youtube":    "youtube",
+}
 
 
 # ============================================================
 # storage.py
 # ------------------------------------------------------------
-# 크롤링 결과를 로컬 txt 파일로 저장하는 기능을 담당합니다.
+# 저장 구조:
+#   data/crawled/naver/batch_1/naver_20260603_204230.txt
+#   data/crawled/youtube/batch_1/youtube_20260603_204230.txt
 #
-# 저장 파일 형식:
-# ./crawled_data/{source_type}/{YYYYMMDD}_{제목}.txt
-#
-# 예:
-# ./crawled_data/naver_blog/20260528_올리브영_추천템.txt
-# ./crawled_data/youtube/20260528_봄웜톤_메이크업_자막.txt
+# batch 폴더는 .txt 파일이 BATCH_SIZE(10)개 차면 자동으로 다음 번호로 전환됩니다.
 # ============================================================
 
 
 def ensure_directory(path: Path) -> None:
-    """
-    특정 폴더가 없으면 생성합니다.
-
-    Args:
-        path:
-            생성할 폴더 경로입니다.
-    """
     path.mkdir(parents=True, exist_ok=True)
 
 
 def prepare_output_directories() -> None:
-    """
-    크롤링 결과 저장에 필요한 모든 폴더를 생성합니다.
-
-    생성 대상:
-    - crawled_data/
-    - crawled_data/naver_blog/
-    - crawled_data/youtube/
-    """
     ensure_directory(OUTPUT_DIR)
     ensure_directory(NAVER_BLOG_OUTPUT_DIR)
     ensure_directory(YOUTUBE_OUTPUT_DIR)
 
 
 def print_output_directories() -> None:
-    """
-    현재 저장 폴더 경로를 화면에 출력합니다.
-    """
-    print(f"Naver output: {NAVER_BLOG_OUTPUT_DIR}")
+    print(f"Naver  output : {NAVER_BLOG_OUTPUT_DIR}")
     print(f"YouTube output: {YOUTUBE_OUTPUT_DIR}")
 
 
-def get_output_dir_by_source(source_type: str, keyword: str = "") -> Path:
+def resolve_batch_dir(platform_dir: Path) -> Path:
     """
-    source_type에 따라 저장 폴더를 반환합니다.
-    keyword가 있으면 키워드 이름의 서브폴더를 반환합니다.
+    platform_dir 아래에서 현재 저장할 batch_N 폴더를 결정합니다.
 
-    Args:
-        source_type:
-            "naver_blog" 또는 "youtube"만 허용합니다.
-        keyword:
-            검색 키워드입니다. 비어 있으면 "direct" 서브폴더를 사용합니다.
-
-    Returns:
-        저장 폴더 Path 객체입니다.
-
-    Raises:
-        ValueError:
-            지원하지 않는 source_type이 들어온 경우 발생합니다.
+    - batch 폴더가 하나도 없으면 batch_1 생성
+    - 마지막 batch 폴더의 .txt 파일이 BATCH_SIZE 이상이면 batch_N+1 생성
+    - BATCH_SIZE 미만이면 그 폴더 그대로 반환
     """
-    from apps.crawler.utils import sanitize_filename
+    ensure_directory(platform_dir)
 
-    if source_type == "naver_blog":
-        base = NAVER_BLOG_OUTPUT_DIR
-    elif source_type == "youtube":
-        base = YOUTUBE_OUTPUT_DIR
-    else:
-        raise ValueError(f"Unsupported source_type: {source_type}")
+    batch_dirs = sorted(
+        [
+            d for d in platform_dir.iterdir()
+            if d.is_dir() and re.fullmatch(r"batch_\d+", d.name)
+        ],
+        key=lambda d: int(d.name.split("_")[1]),
+    )
 
-    folder_name = sanitize_filename(keyword) if keyword else "direct"
-    return base / folder_name
+    if not batch_dirs:
+        target = platform_dir / "batch_1"
+        target.mkdir(exist_ok=True)
+        return target
+
+    latest = batch_dirs[-1]
+    txt_count = len(list(latest.glob("*.txt")))
+
+    if txt_count >= BATCH_SIZE:
+        next_num = int(latest.name.split("_")[1]) + 1
+        target = platform_dir / f"batch_{next_num}"
+        target.mkdir(exist_ok=True)
+        return target
+
+    return latest
 
 
-def make_date_prefix() -> str:
+def make_timestamped_filename(platform_label: str, batch_dir: Path) -> Path:
     """
-    파일명 앞에 붙일 날짜 문자열을 생성합니다.
-
-    Returns:
-        예: "20260528"
+    {platform_label}_{YYYYMMDD}_{HHMMSS}.txt 형식의 중복 없는 파일 경로를 반환합니다.
+    같은 초에 여러 파일이 생성될 경우 _1, _2 ... 접미사를 붙입니다.
     """
     now = datetime.now(ZoneInfo("Asia/Seoul"))
-    return now.strftime("%Y%m%d")
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
+    base = f"{platform_label}_{timestamp}"
 
-
-def build_file_path(output_dir: Path, title: str) -> Path:
-    """
-    저장할 txt 파일 경로를 생성합니다.
-
-    파일명 규칙:
-    {YYYYMMDD}_{안전하게_정리한_제목}.txt
-
-    같은 파일명이 이미 존재하면 뒤에 번호를 붙입니다.
-
-    예:
-    20260528_선크림추천.txt
-    20260528_선크림추천_1.txt
-    20260528_선크림추천_2.txt
-
-    Args:
-        output_dir:
-            저장할 폴더입니다.
-
-        title:
-            원본 제목입니다.
-
-    Returns:
-        중복을 피한 최종 파일 경로입니다.
-    """
-    date_prefix = make_date_prefix()
-    safe_title = sanitize_filename(title)
-
-    base_filename = f"{date_prefix}_{safe_title}"
-    file_path = output_dir / f"{base_filename}.txt"
-
+    file_path = batch_dir / f"{base}.txt"
     counter = 1
     while file_path.exists():
-        file_path = output_dir / f"{base_filename}_{counter}.txt"
+        file_path = batch_dir / f"{base}_{counter}.txt"
         counter += 1
 
     return file_path
@@ -149,37 +114,6 @@ def build_text_document(
     body_text: str,
     extra_metadata: dict[str, str] | None = None,
 ) -> str:
-    """
-    txt 파일에 저장할 전체 문서를 만듭니다.
-
-    RAG 전처리를 고려해, 파일 상단에 메타데이터를 넣고
-    그 아래에 본문 텍스트를 넣습니다.
-
-    Args:
-        source_type:
-            데이터 출처 유형입니다.
-            예: "naver_blog", "youtube"
-
-        title:
-            글 또는 영상 제목입니다.
-
-        url:
-            원본 URL입니다.
-
-        collected_at:
-            수집 시각입니다.
-            예: "2026-05-28T14:30:00+09:00"
-
-        body_text:
-            저장할 본문 텍스트입니다.
-
-        extra_metadata:
-            추가로 저장하고 싶은 메타데이터입니다.
-            예: {"language": "ko", "video_id": "abc123"}
-
-    Returns:
-        txt 파일에 들어갈 전체 문자열입니다.
-    """
     metadata_lines = [
         f"source_type: {source_type}",
         f"title: {title}",
@@ -192,7 +126,6 @@ def build_text_document(
             metadata_lines.append(f"{key}: {value}")
 
     metadata_block = "\n".join(metadata_lines)
-
     return f"{metadata_block}\n\n{body_text.strip()}\n"
 
 
@@ -206,37 +139,27 @@ def save_text_document(
     keyword: str = "",
 ) -> Path:
     """
-    크롤링 결과를 txt 파일로 저장합니다.
+    크롤링 결과를 batch 구조로 저장합니다.
 
     Args:
-        source_type:
-            "naver_blog" 또는 "youtube"입니다.
-
-        title:
-            저장 파일명과 메타데이터에 사용할 제목입니다.
-
-        url:
-            원본 URL입니다.
-
-        collected_at:
-            수집 시각입니다.
-
-        body_text:
-            저장할 순수 텍스트 본문입니다.
-
-        extra_metadata:
-            선택 추가 메타데이터입니다.
-
-        keyword:
-            검색 키워드입니다. 키워드 이름의 서브폴더에 저장됩니다.
+        source_type : "naver_blog" 또는 "youtube"
+        title       : 메타데이터용 제목
+        url         : 원본 URL
+        collected_at: 수집 시각
+        body_text   : 본문 텍스트
+        extra_metadata: 추가 메타데이터
+        keyword     : (호환성 유지용, 저장 경로에는 미사용)
 
     Returns:
-        저장된 파일 경로입니다.
+        저장된 파일 경로
     """
-    output_dir = get_output_dir_by_source(source_type, keyword)
-    ensure_directory(output_dir)
+    platform_dir = _PLATFORM_DIR.get(source_type)
+    if platform_dir is None:
+        raise ValueError(f"Unsupported source_type: {source_type}")
 
-    file_path = build_file_path(output_dir, title)
+    platform_label = _PLATFORM_LABEL[source_type]
+    batch_dir      = resolve_batch_dir(platform_dir)
+    file_path      = make_timestamped_filename(platform_label, batch_dir)
 
     document_text = build_text_document(
         source_type=source_type,
@@ -249,8 +172,20 @@ def save_text_document(
 
     file_path.write_text(document_text, encoding="utf-8")
 
+    current_count = len(list(batch_dir.glob("*.txt")))
+    try:
+        display_path = file_path.relative_to(BASE_DIR)
+    except ValueError:
+        display_path = file_path
+
+    print(f"[적재 완료] {display_path} (현재 폴더 내 {current_count}/{BATCH_SIZE}개)")
+
     return file_path
 
+
+# ============================================================
+# crawl log
+# ============================================================
 
 def load_crawl_log() -> dict:
     if not CRAWL_LOG_PATH.exists():
@@ -262,6 +197,7 @@ def load_crawl_log() -> dict:
 
 
 def save_crawl_log(log: dict) -> None:
+    ensure_directory(CRAWL_LOG_PATH.parent)
     CRAWL_LOG_PATH.write_text(
         json.dumps(log, indent=2, ensure_ascii=False),
         encoding="utf-8",

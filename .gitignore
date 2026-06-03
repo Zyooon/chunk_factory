@@ -43,3 +43,6 @@ Thumbs.db
 .coverage
 htmlcov/
 backup/
+
+# SQLite 데이터베이스 파일 제외
+*.sqlite3

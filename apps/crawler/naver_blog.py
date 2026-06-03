@@ -10,12 +10,12 @@ from apps.crawler.config import (
     CRAWL_SORT_MODE,
     MIN_TEXT_LENGTH,
     NAVER_BLOG_MAX_ARTICLES_PER_KEYWORD,
-    NAVER_BLOG_SEARCH_KEYWORDS,
     NAVER_BLOG_SEARCH_MAX_PAGES,
     NAVER_BLOG_URLS,
     REQUEST_TIMEOUT,
     USE_RANDOM_START,
     USER_AGENT,
+    load_shared_keywords,
 )
 from apps.crawler.storage import (
     add_crawl_log_entry,
@@ -260,18 +260,26 @@ def extract_blog_links_from_search(html: str, max_links: int) -> list[str]:
     return links
 
 
-def search_naver_blog_article_urls(keyword: str) -> list[str]:
+def search_naver_blog_article_urls(
+    keyword: str,
+    limit: int = NAVER_BLOG_MAX_ARTICLES_PER_KEYWORD,
+    pages: int = NAVER_BLOG_SEARCH_MAX_PAGES,
+) -> list[str]:
     """
     키워드 하나로 네이버 블로그 검색을 수행하고 글 URL 목록을 반환합니다.
 
     Args:
         keyword:
             검색 키워드입니다.
+        limit:
+            키워드당 최대 수집 URL 수입니다.
+        pages:
+            검색 결과를 순회할 최대 페이지 수입니다.
 
     Returns:
         네이버 블로그 글 URL 목록입니다.
     """
-    print(f"[NAVER][SEARCH] keyword={keyword}")
+    print(f"[NAVER][SEARCH] keyword={keyword}, limit={limit}, pages={pages}")
 
     # USE_RANDOM_START=True이면 0~4 중 랜덤 오프셋(페이지 단위)을 적용해
     # 1, 11, 21, 31, 41 중 무작위 위치부터 수집을 시작합니다.
@@ -282,7 +290,7 @@ def search_naver_blog_article_urls(keyword: str) -> list[str]:
     found_urls: list[str] = []
     seen: set[str] = set()
 
-    for page in range(1, NAVER_BLOG_SEARCH_MAX_PAGES + 1):
+    for page in range(1, pages + 1):
         search_url = build_naver_blog_search_url(
             keyword=keyword,
             page=page,
@@ -298,7 +306,7 @@ def search_naver_blog_article_urls(keyword: str) -> list[str]:
         if html is None:
             continue
 
-        remaining_count = NAVER_BLOG_MAX_ARTICLES_PER_KEYWORD - len(found_urls)
+        remaining_count = limit - len(found_urls)
 
         if remaining_count <= 0:
             break
@@ -315,10 +323,10 @@ def search_naver_blog_article_urls(keyword: str) -> list[str]:
             seen.add(link)
             found_urls.append(link)
 
-            if len(found_urls) >= NAVER_BLOG_MAX_ARTICLES_PER_KEYWORD:
+            if len(found_urls) >= limit:
                 break
 
-        if len(found_urls) >= NAVER_BLOG_MAX_ARTICLES_PER_KEYWORD:
+        if len(found_urls) >= limit:
             break
 
     print(f"[NAVER][SEARCH] found={len(found_urls)}")
@@ -565,24 +573,31 @@ def collect_naver_blogs_from_direct_urls(log: dict) -> tuple[int, int]:
     return success_count, fail_count
 
 
-def collect_naver_blogs_from_search(log: dict) -> tuple[int, int]:
+def collect_naver_blogs_from_search(
+    log: dict,
+    limit: int = NAVER_BLOG_MAX_ARTICLES_PER_KEYWORD,
+    pages: int = NAVER_BLOG_SEARCH_MAX_PAGES,
+) -> tuple[int, int]:
     """
     config.py의 NAVER_BLOG_SEARCH_KEYWORDS를 기준으로 검색 수집을 수행합니다.
 
     Returns:
         (성공 개수, 실패 개수)
     """
-    if not NAVER_BLOG_SEARCH_KEYWORDS:
+    keywords = load_shared_keywords()
+    if not keywords:
         print("[NAVER][SEARCH] no keywords configured.")
         return 0, 0
+
+    print(f"[로그] 통합 config 파일에서 총 {len(keywords)}개의 키워드를 로드하여 [네이버] 크롤링을 시작합니다.")
 
     success_count = 0
     fail_count = 0
 
     global_seen_urls: set[str] = set()
 
-    for keyword in NAVER_BLOG_SEARCH_KEYWORDS:
-        article_urls = search_naver_blog_article_urls(keyword)
+    for keyword in keywords:
+        article_urls = search_naver_blog_article_urls(keyword, limit=limit, pages=pages)
 
         for article_url in article_urls:
             if is_already_crawled(article_url, log):
@@ -605,7 +620,10 @@ def collect_naver_blogs_from_search(log: dict) -> tuple[int, int]:
     return success_count, fail_count
 
 
-def collect_naver_blogs() -> tuple[int, int]:
+def collect_naver_blogs(
+    limit: int = NAVER_BLOG_MAX_ARTICLES_PER_KEYWORD,
+    pages: int = NAVER_BLOG_SEARCH_MAX_PAGES,
+) -> tuple[int, int]:
     """
     네이버 블로그 전체 수집 실행 함수입니다.
 
@@ -614,12 +632,18 @@ def collect_naver_blogs() -> tuple[int, int]:
     1. NAVER_BLOG_URLS에 직접 입력한 글 URL 수집
     2. NAVER_BLOG_SEARCH_KEYWORDS로 검색해서 글 URL을 찾은 뒤 수집
 
+    Args:
+        limit:
+            키워드당 최대 수집 글 수입니다.
+        pages:
+            키워드당 검색 결과 최대 페이지 수입니다.
+
     Returns:
         (전체 성공 개수, 전체 실패 개수)
     """
     log = load_crawl_log()
     direct_success, direct_fail = collect_naver_blogs_from_direct_urls(log)
-    search_success, search_fail = collect_naver_blogs_from_search(log)
+    search_success, search_fail = collect_naver_blogs_from_search(log, limit=limit, pages=pages)
 
     total_success = direct_success + search_success
     total_fail = direct_fail + search_fail

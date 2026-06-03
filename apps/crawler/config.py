@@ -36,34 +36,37 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 
 OUTPUT_DIR = BASE_DIR / "data" / "crawled"
 
-NAVER_BLOG_OUTPUT_DIR = OUTPUT_DIR / "naver_blog"
+NAVER_BLOG_OUTPUT_DIR = OUTPUT_DIR / "naver"
 
 YOUTUBE_OUTPUT_DIR = OUTPUT_DIR / "youtube"
 
+# ------------------------------------------------------------
+# 통합 키워드 파일 경로
+# ------------------------------------------------------------
+KEYWORDS_FILE = BASE_DIR / "data" / "config" / "keywords.txt"
 
-# ------------------------------------------------------------
-# 네이버 블로그 검색 키워드 설정
-# ------------------------------------------------------------
-# 여기에 원하는 뷰티 키워드를 넣으면 됩니다.
-#
-# 예:
-# "올리브영 선크림 추천"
-# "2026 메이크업 트렌드"
-# "민감성 피부 스킨케어 루틴"
-#
-# 너무 많이 넣으면 요청 수가 늘어나므로 처음에는 1~2개만 테스트하세요.
-NAVER_BLOG_SEARCH_KEYWORDS: list[str] = [
-    "상안부 중안부 하안부 헤어스타일",
-    "얼굴 삼정 헤어스타일",
-    "얼굴 비율 헤어스타일 추천",
-    "중안부 긴 얼굴 헤어스타일",
-    "중안부 짧은 얼굴 헤어스타일",
-    "하안부 긴 얼굴 헤어스타일",
-    "상안부 긴 얼굴 앞머리",
-    "이마 긴 얼굴 앞머리 추천",
-    "얼굴형 분석 헤어스타일 컨설팅",
-    "얼굴 비율 분석 헤어컨설팅",
-]
+
+def load_shared_keywords() -> list[str]:
+    """
+    data/config/keywords.txt 에서 공통 키워드 목록을 로드합니다.
+
+    - 앞뒤 공백 제거
+    - 빈 줄 및 '#' 시작 줄(주석) 제외
+
+    Returns:
+        키워드 문자열 목록. 파일이 없으면 빈 리스트.
+    """
+    if not KEYWORDS_FILE.exists():
+        print(f"[경고] 통합 키워드 파일을 찾을 수 없습니다: {KEYWORDS_FILE}")
+        return []
+
+    keywords: list[str] = []
+    for line in KEYWORDS_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        keywords.append(line)
+    return keywords
 
 
 # 키워드 하나당 최대 몇 개의 블로그 글을 저장할지 설정합니다.
@@ -93,31 +96,6 @@ NAVER_BLOG_URLS: list[str] = [
 YOUTUBE_VIDEO_URLS: list[str] = [
     # "https://www.youtube.com/watch?v=VIDEO_ID",
 ]
-
-# ------------------------------------------------------------
-# 유튜브 검색 키워드 설정
-# ------------------------------------------------------------
-# 여기에 원하는 뷰티 관련 유튜브 검색어를 넣습니다.
-#
-# 예:
-# "올리브영 선크림 추천"
-# "2026 메이크업 트렌드"
-# "민감성 피부 스킨케어 루틴"
-#
-# 처음에는 1개 키워드, 2~3개 영상만 테스트하는 것을 권장합니다.
-YOUTUBE_SEARCH_KEYWORDS: list[str] = [
-    "상안부 중안부 하안부 헤어스타일",
-    "얼굴 삼정 헤어스타일",
-    "얼굴 비율 헤어스타일 추천",
-    "중안부 긴 얼굴 헤어스타일",
-    "중안부 짧은 얼굴 헤어스타일",
-    "하안부 긴 얼굴 헤어스타일",
-    "상안부 긴 얼굴 앞머리",
-    "이마 긴 얼굴 앞머리 추천",
-    "얼굴형 분석 헤어스타일 컨설팅",
-    "얼굴 비율 분석 헤어컨설팅",
-]
-
 
 # 키워드 하나당 최대 몇 개의 유튜브 영상을 가져올지 설정합니다.
 # YouTube Data API quota를 아끼기 위해 처음에는 3개 정도를 권장합니다.

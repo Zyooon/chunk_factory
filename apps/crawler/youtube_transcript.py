@@ -20,11 +20,11 @@ from apps.crawler.config import (
     USER_AGENT,
     YOUTUBE_API_KEY,
     YOUTUBE_MIN_DURATION_SECONDS,
-    YOUTUBE_SEARCH_KEYWORDS,
     YOUTUBE_SEARCH_MAX_RESULTS_PER_KEYWORD,
     YOUTUBE_SEARCH_ORDER,
     YOUTUBE_SEARCH_VIDEO_DURATION,
     YOUTUBE_TRANSCRIPT_LANGUAGES,
+    load_shared_keywords,
 )
 from apps.crawler.storage import (
     add_crawl_log_entry,
@@ -201,13 +201,21 @@ def validate_youtube_api_key() -> bool:
     return False
 
 
-def search_youtube_videos(keyword: str) -> list[YouTubeVideoSearchResult]:
+def search_youtube_videos(
+    keyword: str,
+    limit: int = YOUTUBE_SEARCH_MAX_RESULTS_PER_KEYWORD,
+    pages: int = 1,
+) -> list[YouTubeVideoSearchResult]:
     """
     YouTube Data API search.list를 호출해 키워드에 맞는 영상 목록을 가져옵니다.
 
     Args:
         keyword:
             유튜브 검색 키워드입니다.
+        limit:
+            API 한 페이지당 요청할 최대 영상 수입니다.
+        pages:
+            pageToken을 이용해 순회할 최대 페이지 수입니다.
 
     Returns:
         YouTubeVideoSearchResult 목록입니다.
@@ -215,7 +223,7 @@ def search_youtube_videos(keyword: str) -> list[YouTubeVideoSearchResult]:
     if not validate_youtube_api_key():
         return []
 
-    print(f"[YOUTUBE][SEARCH] keyword={keyword}")
+    print(f"[YOUTUBE][SEARCH] keyword={keyword}, limit={limit}, pages={pages}")
 
     order_param = _get_youtube_order_param()
     published_after = _get_published_after_param()
@@ -224,85 +232,82 @@ def search_youtube_videos(keyword: str) -> list[YouTubeVideoSearchResult]:
     if published_after:
         print(f"[YOUTUBE][SEARCH] period_limit={CRAWL_PERIOD_DAYS}days → publishedAfter={published_after}")
 
-    params: dict[str, Any] = {
-        "part": "snippet",
-        "q": keyword,
-        "type": "video",
-        "maxResults": YOUTUBE_SEARCH_MAX_RESULTS_PER_KEYWORD,
-        "order": order_param,
-        "key": YOUTUBE_API_KEY,
-        "regionCode": "KR",
-        "relevanceLanguage": RELEVANCE_LANGUAGE,
-        "safeSearch": "moderate",
-        "videoDuration": YOUTUBE_SEARCH_VIDEO_DURATION,
-    }
-
-    if published_after:
-        params["publishedAfter"] = published_after
-
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": "application/json",
     }
 
-    try:
-        polite_sleep()
+    raw_videos: list[YouTubeVideoSearchResult] = []
+    page_token: str | None = None
 
-        response = requests.get(
-            YOUTUBE_SEARCH_API_URL,
-            params=params,
-            headers=headers,
-            timeout=REQUEST_TIMEOUT,
-        )
+    for page_num in range(1, pages + 1):
+        params: dict[str, Any] = {
+            "part": "snippet",
+            "q": keyword,
+            "type": "video",
+            "maxResults": limit,
+            "order": order_param,
+            "key": YOUTUBE_API_KEY,
+            "regionCode": "KR",
+            "relevanceLanguage": RELEVANCE_LANGUAGE,
+            "safeSearch": "moderate",
+            "videoDuration": YOUTUBE_SEARCH_VIDEO_DURATION,
+        }
+        if published_after:
+            params["publishedAfter"] = published_after
+        if page_token:
+            params["pageToken"] = page_token
 
-        response.raise_for_status()
+        print(f"[YOUTUBE][SEARCH] page={page_num}/{pages}")
 
-        data: dict[str, Any] = response.json()
+        try:
+            polite_sleep()
+            response = requests.get(
+                YOUTUBE_SEARCH_API_URL,
+                params=params,
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data: dict[str, Any] = response.json()
+        except requests.RequestException as error:
+            print(f"[YOUTUBE][SEARCH ERROR] keyword={keyword}")
+            print(f"[YOUTUBE][SEARCH ERROR] detail={error}")
+            break
+        except ValueError as error:
+            print(f"[YOUTUBE][SEARCH ERROR] failed to parse JSON. keyword={keyword}")
+            print(f"[YOUTUBE][SEARCH ERROR] detail={error}")
+            break
 
-    except requests.RequestException as error:
-        print(f"[YOUTUBE][SEARCH ERROR] keyword={keyword}")
-        print(f"[YOUTUBE][SEARCH ERROR] detail={error}")
-        return []
+        for item in data.get("items", []):
+            id_info = item.get("id", {})
+            snippet = item.get("snippet", {})
+            video_id = id_info.get("videoId", "")
+            if not video_id:
+                continue
+            title = normalize_whitespace(html.unescape(snippet.get("title", "")))
+            channel_title = normalize_whitespace(html.unescape(snippet.get("channelTitle", "")))
+            published_at = snippet.get("publishedAt", "")
+            if not title:
+                title = f"youtube_video_{video_id}"
+            raw_videos.append(YouTubeVideoSearchResult(
+                video_id=video_id,
+                title=title,
+                url=build_youtube_watch_url(video_id),
+                channel_title=channel_title,
+                published_at=published_at,
+            ))
 
-    except ValueError as error:
-        print(f"[YOUTUBE][SEARCH ERROR] failed to parse JSON. keyword={keyword}")
-        print(f"[YOUTUBE][SEARCH ERROR] detail={error}")
-        return []
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
 
-    videos: list[YouTubeVideoSearchResult] = []
-
-    for item in data.get("items", []):
-        id_info = item.get("id", {})
-        snippet = item.get("snippet", {})
-
-        video_id = id_info.get("videoId", "")
-
-        if not video_id:
-            continue
-
-        title = normalize_whitespace(html.unescape(snippet.get("title", "")))
-        channel_title = normalize_whitespace(html.unescape(snippet.get("channelTitle", "")))
-        published_at = snippet.get("publishedAt", "")
-
-        if not title:
-            title = f"youtube_video_{video_id}"
-
-        video = YouTubeVideoSearchResult(
-            video_id=video_id,
-            title=title,
-            url=build_youtube_watch_url(video_id),
-            channel_title=channel_title,
-            published_at=published_at,
-        )
-
-        videos.append(video)
-
-    video_ids = [video.video_id for video in videos]
+    video_ids = [v.video_id for v in raw_videos]
     duration_map = fetch_video_durations(video_ids)
 
     filtered_videos: list[YouTubeVideoSearchResult] = []
 
-    for video in videos:
+    for video in raw_videos:
         duration_seconds = duration_map.get(video.video_id, 0)
         video.duration_seconds = duration_seconds
 
@@ -315,7 +320,7 @@ def search_youtube_videos(keyword: str) -> list[YouTubeVideoSearchResult]:
 
         filtered_videos.append(video)
 
-    print(f"[YOUTUBE][SEARCH] found={len(videos)}, after_duration_filter={len(filtered_videos)}")
+    print(f"[YOUTUBE][SEARCH] found={len(raw_videos)}, after_duration_filter={len(filtered_videos)}")
 
     for index, video in enumerate(filtered_videos, start=1):
         print(
@@ -532,25 +537,37 @@ def collect_single_youtube_video(
     return True
 
 
-def collect_youtube_transcripts() -> tuple[int, int]:
+def collect_youtube_transcripts(
+    limit: int = YOUTUBE_SEARCH_MAX_RESULTS_PER_KEYWORD,
+    pages: int = 1,
+) -> tuple[int, int]:
     """
     config.py의 YOUTUBE_SEARCH_KEYWORDS 기준으로 유튜브 영상을 검색하고,
     검색된 영상들의 자막을 저장합니다.
 
+    Args:
+        limit:
+            키워드당 API 한 페이지에서 가져올 최대 영상 수입니다.
+        pages:
+            키워드당 순회할 최대 API 페이지 수입니다.
+
     Returns:
         (성공 개수, 실패 개수)
     """
-    if not YOUTUBE_SEARCH_KEYWORDS:
+    keywords = load_shared_keywords()
+    if not keywords:
         print("[YOUTUBE][SEARCH] no keywords configured.")
         return 0, 0
+
+    print(f"[로그] 통합 config 파일에서 총 {len(keywords)}개의 키워드를 로드하여 [유튜브] 크롤링을 시작합니다.")
 
     success_count = 0
     fail_count = 0
     log = load_crawl_log()
     global_seen_video_ids: set[str] = set()
 
-    for keyword in YOUTUBE_SEARCH_KEYWORDS:
-        videos = search_youtube_videos(keyword)
+    for keyword in keywords:
+        videos = search_youtube_videos(keyword, limit=limit, pages=pages)
 
         if not videos:
             print(f"[YOUTUBE][SEARCH] no videos found. keyword={keyword}")
