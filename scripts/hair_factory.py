@@ -398,30 +398,30 @@ worst_styles:
 출력은 반드시 아래 스키마를 따르세요.
 
 [
-{
-"category": "hair",
-"gender": "여성",
-"conditions": {
-"face_shape": "둥근형",
-"face_proportion": "균형"
-},
-"recommended_styles": [
-{
-"style_name": "표준 스타일명",
-"style_group": "표준 스타일 코드",
-"style_features": ["특징1", "특징2"]
-}
-],
-"worst_styles": [
-{
-"style_name": "표준 스타일명",
-"style_group": "표준 스타일 코드",
-"style_features": ["특징1", "특징2"]
-}
-],
-"expert_reasoning_positive": "추천 이유를 15년 차 수석 디자이너의 다정하고 전문적인 말투로 2~3문장 작성하세요.",
-"expert_reasoning_negative": "비추천 이유를 15년 차 수석 디자이너의 다정하고 전문적인 말투로 1~2문장 작성하세요."
-}
+    {
+        "category": "hair",
+        "gender": "여성",
+        "conditions": {
+        "face_shape": "둥근형",
+        "face_proportion": "균형"
+    },
+    "recommended_styles": [ 
+        {
+            "style_name": "표준 스타일명",
+            "style_group": "표준 스타일 코드",
+            "style_features": ["특징1", "특징2"]
+        }
+    ],
+    "worst_styles": [
+        {
+            "style_name": "표준 스타일명",
+            "style_group": "표준 스타일 코드",
+            "style_features": ["특징1", "특징2"]
+        }
+    ],
+        "expert_reasoning_positive": "추천 이유를 15년 차 수석 디자이너의 다정하고 전문적인 말투로 2~3문장 작성하세요.",
+        "expert_reasoning_negative": "비추천 이유를 15년 차 수석 디자이너의 다정하고 전문적인 말투로 1~2문장 작성하세요."
+    }
 ]
 
 ---

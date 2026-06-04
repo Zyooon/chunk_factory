@@ -25,11 +25,11 @@
 
     class HairAnalysisLog(models.Model):
         \"\"\"헤어 스타일 통계/분석용 비정규화 테이블 (FK 없음)\"\"\"
-        face_shape  = models.CharField(max_length=50)
-        style_name  = models.CharField(max_length=100)
-        gender      = models.CharField(max_length=10)
-        style_type  = models.CharField(max_length=20, default='recommended', db_index=True)
-        created_at  = models.DateTimeField(auto_now_add=True)
+        face_shape       = models.CharField(max_length=50)
+        face_proportion  = models.CharField(max_length=50, blank=True, default="")
+        style_name       = models.CharField(max_length=100)
+        gender           = models.CharField(max_length=10)
+        style_type       = models.CharField(max_length=20, default='recommended', db_index=True)
 
         class Meta:
             db_table = "hair_analysis_log"
@@ -146,16 +146,16 @@ def _get_models(inline_mode: bool):
                 ("recommended", "추천"),
                 ("worst", "비추천"),
             ]
-            face_shape  = models.CharField(max_length=50)
-            style_name  = models.CharField(max_length=100)
-            gender      = models.CharField(max_length=10)
-            style_type  = models.CharField(
+            face_shape       = models.CharField(max_length=50)
+            face_proportion  = models.CharField(max_length=50, blank=True, default="")
+            style_name       = models.CharField(max_length=100)
+            gender           = models.CharField(max_length=10)
+            style_type       = models.CharField(
                 max_length=20,
                 choices=STYLE_TYPE_CHOICES,
                 default="recommended",
                 db_index=True,
             )
-            created_at  = models.DateTimeField(auto_now_add=True)
 
             class Meta:
                 app_label = "beauty"
@@ -188,7 +188,7 @@ def find_json_files() -> list[Path]:
         print(f"[오류] 데이터 디렉터리가 없습니다: {CLEANED_DATA_DIR}")
         sys.exit(1)
 
-    files = sorted(CLEANED_DATA_DIR.glob("*.json"))
+    files = sorted(CLEANED_DATA_DIR.glob("done.json"))
     return files
 
 
@@ -276,7 +276,9 @@ def ingest_record(
         return  # 원본 저장 실패 시 통계 적재도 건너뜀
 
     # ── 트랙 2: 스타일별 통계 행 분리 적재 (FK 없음) ─────────────
-    face_shape      = record.get("conditions", {}).get("face_shape", "")
+    conditions      = record.get("conditions", {})
+    face_shape      = conditions.get("face_shape", "")
+    face_proportion = conditions.get("face_proportion", "")
     gender          = record.get("gender", "")
     recommended     = record.get("recommended_styles", [])
     worst           = record.get("worst_styles", [])
@@ -287,6 +289,7 @@ def ingest_record(
         # 스타일이 전혀 없어도 face_shape / gender 정보는 빈 style_name 으로 1행 저장
         log_rows.append(HairAnalysisLog(
             face_shape=face_shape,
+            face_proportion=face_proportion,
             style_name="",
             gender=gender,
             style_type="recommended",
@@ -295,6 +298,7 @@ def ingest_record(
         for style in recommended:
             log_rows.append(HairAnalysisLog(
                 face_shape=face_shape,
+                face_proportion=face_proportion,
                 style_name=style.get("style_name", ""),
                 gender=gender,
                 style_type="recommended",
@@ -302,6 +306,7 @@ def ingest_record(
         for style in worst:
             log_rows.append(HairAnalysisLog(
                 face_shape=face_shape,
+                face_proportion=face_proportion,
                 style_name=style.get("style_name", ""),
                 gender=gender,
                 style_type="worst",
@@ -342,11 +347,12 @@ def _ensure_tables(AiRawDataJson, HairAnalysisLog) -> None:
                         connection.cursor(), table
                     )
                 ]
-                if "style_type" not in col_names:
-                    field = HairAnalysisLog._meta.get_field("style_type")
-                    with connection.schema_editor() as editor:
-                        editor.add_field(HairAnalysisLog, field)
-                    print(f"  [DB] style_type 컬럼 추가: {table}")
+                for col in ("style_type", "face_proportion"):
+                    if col not in col_names:
+                        field = HairAnalysisLog._meta.get_field(col)
+                        with connection.schema_editor() as editor:
+                            editor.add_field(HairAnalysisLog, field)
+                        print(f"  [DB] {col} 컬럼 추가: {table}")
 
 
 # ──────────────────────────────────────────────────────────────

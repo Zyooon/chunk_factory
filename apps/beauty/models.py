@@ -18,6 +18,7 @@ class HairAnalysisLog(models.Model):
 
     gender = models.CharField(max_length=10)
     face_shape = models.CharField(max_length=50, db_index=True)
+    face_proportion = models.CharField(max_length=50, blank=True, default="")
     style_name = models.CharField(max_length=100)
     style_type = models.CharField(
         max_length=20,
@@ -25,7 +26,6 @@ class HairAnalysisLog(models.Model):
         default="recommended",
         db_index=True,
     )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "hair_analysis_log"
