@@ -11,9 +11,20 @@ class AiRawDataJson(models.Model):
 
 
 class HairAnalysisLog(models.Model):
+    STYLE_TYPE_CHOICES = [
+        ("recommended", "추천"),
+        ("worst", "비추천"),
+    ]
+
     gender = models.CharField(max_length=10)
     face_shape = models.CharField(max_length=50, db_index=True)
     style_name = models.CharField(max_length=100)
+    style_type = models.CharField(
+        max_length=20,
+        choices=STYLE_TYPE_CHOICES,
+        default="recommended",
+        db_index=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

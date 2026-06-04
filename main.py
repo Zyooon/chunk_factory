@@ -19,7 +19,7 @@ MENU = {
     },
     "2": {
         "label": "전처리 실행  (hair_factory → data/cleaned/*.json 생성)",
-        "cmd": [PYTHON, str(PROJECT_ROOT / "hair_factory.py")],
+        "cmd": [PYTHON, str(PROJECT_ROOT / "scripts" / "hair_factory.py")],
     },
     "3": {
         "label": "JSON 병합    (data/cleaned/** → done.json)",

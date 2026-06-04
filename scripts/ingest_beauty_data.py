@@ -28,6 +28,7 @@
         face_shape  = models.CharField(max_length=50)
         style_name  = models.CharField(max_length=100)
         gender      = models.CharField(max_length=10)
+        style_type  = models.CharField(max_length=20, default='recommended', db_index=True)
         created_at  = models.DateTimeField(auto_now_add=True)
 
         class Meta:
@@ -141,9 +142,19 @@ def _get_models(inline_mode: bool):
                 db_table  = "ai_raw_data_json"
 
         class HairAnalysisLog(models.Model):
+            STYLE_TYPE_CHOICES = [
+                ("recommended", "추천"),
+                ("worst", "비추천"),
+            ]
             face_shape  = models.CharField(max_length=50)
             style_name  = models.CharField(max_length=100)
             gender      = models.CharField(max_length=10)
+            style_type  = models.CharField(
+                max_length=20,
+                choices=STYLE_TYPE_CHOICES,
+                default="recommended",
+                db_index=True,
+            )
             created_at  = models.DateTimeField(auto_now_add=True)
 
             class Meta:
@@ -265,26 +276,43 @@ def ingest_record(
         return  # 원본 저장 실패 시 통계 적재도 건너뜀
 
     # ── 트랙 2: 스타일별 통계 행 분리 적재 (FK 없음) ─────────────
-    face_shape = record.get("conditions", {}).get("face_shape", "")
-    gender     = record.get("gender", "")
-    styles     = record.get("recommended_styles", [])
+    face_shape      = record.get("conditions", {}).get("face_shape", "")
+    gender          = record.get("gender", "")
+    recommended     = record.get("recommended_styles", [])
+    worst           = record.get("worst_styles", [])
 
-    if not styles:
-        # 스타일이 없어도 face_shape / gender 정보는 빈 style_name 으로 1행 저장
-        styles = [{"style_name": ""}]
+    log_rows = []
 
-    log_rows = [
-        HairAnalysisLog(
+    if not recommended and not worst:
+        # 스타일이 전혀 없어도 face_shape / gender 정보는 빈 style_name 으로 1행 저장
+        log_rows.append(HairAnalysisLog(
             face_shape=face_shape,
-            style_name=style.get("style_name", ""),
+            style_name="",
             gender=gender,
-        )
-        for style in styles
-    ]
+            style_type="recommended",
+        ))
+    else:
+        for style in recommended:
+            log_rows.append(HairAnalysisLog(
+                face_shape=face_shape,
+                style_name=style.get("style_name", ""),
+                gender=gender,
+                style_type="recommended",
+            ))
+        for style in worst:
+            log_rows.append(HairAnalysisLog(
+                face_shape=face_shape,
+                style_name=style.get("style_name", ""),
+                gender=gender,
+                style_type="worst",
+            ))
 
     try:
         HairAnalysisLog.objects.bulk_create(log_rows)
-        stats["log_inserted"] += len(log_rows)
+        rec_count  = sum(1 for r in log_rows if r.style_type == "recommended")
+        worst_count = sum(1 for r in log_rows if r.style_type == "worst")
+        stats["recommended_inserted"] += rec_count
+        stats["worst_inserted"]       += worst_count
     except Exception as e:
         print(f"  [오류] HairAnalysisLog 적재 실패 (uuid={record_uuid}): {e}")
         stats["errors"] += 1
@@ -294,7 +322,7 @@ def ingest_record(
 # 8. 인라인 모드 전용 — 테이블 자동 생성
 # ──────────────────────────────────────────────────────────────
 def _ensure_tables(AiRawDataJson, HairAnalysisLog) -> None:
-    """인라인 SQLite 모드에서만 호출. migrate 없이 테이블을 직접 CREATE."""
+    """인라인 SQLite 모드에서만 호출. migrate 없이 테이블을 직접 CREATE/ALTER."""
     from django.db import connection
 
     existing = connection.introspection.table_names()
@@ -306,6 +334,19 @@ def _ensure_tables(AiRawDataJson, HairAnalysisLog) -> None:
             print(f"  [DB] 테이블 생성: {table}")
         else:
             print(f"  [DB] 테이블 이미 존재: {table}")
+            # style_type 컬럼이 없으면 추가 (스키마 업그레이드)
+            if table == HairAnalysisLog._meta.db_table:
+                col_names = [
+                    col.name
+                    for col in connection.introspection.get_table_description(
+                        connection.cursor(), table
+                    )
+                ]
+                if "style_type" not in col_names:
+                    field = HairAnalysisLog._meta.get_field("style_type")
+                    with connection.schema_editor() as editor:
+                        editor.add_field(HairAnalysisLog, field)
+                    print(f"  [DB] style_type 컬럼 추가: {table}")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -338,11 +379,12 @@ def main() -> None:
 
     # 통계 카운터
     stats = {
-        "raw_inserted":  0,
-        "log_inserted":  0,
-        "skipped":       0,
-        "errors":        0,
-        "total_records": 0,
+        "raw_inserted":          0,
+        "recommended_inserted":  0,
+        "worst_inserted":        0,
+        "skipped":               0,
+        "errors":                0,
+        "total_records":         0,
     }
 
     # 파일 순회
@@ -371,21 +413,26 @@ def main() -> None:
                 stats["errors"] += 1
 
     # 최종 결과 출력
+    total_log = stats["recommended_inserted"] + stats["worst_inserted"]
     print()
     print("=" * 60)
     print("  적재 완료 요약")
     print("=" * 60)
     print(f"  처리 대상 레코드  : {stats['total_records']:>6}건")
     print(f"  원본 테이블 적재  : {stats['raw_inserted']:>6}건  (AiRawDataJson)")
-    print(f"  통계 테이블 적재  : {stats['log_inserted']:>6}건  (HairAnalysisLog)")
+    print(f"  추천 스타일 적재  : {stats['recommended_inserted']:>6}건  (HairAnalysisLog / recommended)")
+    print(f"  비추천 스타일 적재: {stats['worst_inserted']:>6}건  (HairAnalysisLog / worst)")
+    print(f"  통계 테이블 합계  : {total_log:>6}건  (HairAnalysisLog)")
     print(f"  중복 스킵         : {stats['skipped']:>6}건")
     print(f"  오류              : {stats['errors']:>6}건")
     print("=" * 60)
+    print(
+        f"\n[적재 완료] 이번 배치에서 추천 스타일 {stats['recommended_inserted']}개, "
+        f"비추천 스타일 {stats['worst_inserted']}개가 성공적으로 적재되었습니다."
+    )
 
     if stats["errors"] > 0:
-        print(f"\n[주의] {stats['errors']}건의 오류가 발생했습니다. 위 로그를 확인하세요.")
-    else:
-        print("\n[완료] 모든 데이터가 오류 없이 적재되었습니다.")
+        print(f"[주의] {stats['errors']}건의 오류가 발생했습니다. 위 로그를 확인하세요.")
 
 
 if __name__ == "__main__":
