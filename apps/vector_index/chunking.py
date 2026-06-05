@@ -1,5 +1,3 @@
-# apps/vector_index/chunking.py
-
 from typing import Any
 
 from langchain_core.documents import Document
