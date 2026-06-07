@@ -128,8 +128,7 @@ def build_hair_fallback_filters(
 
 
 def search_with_fallback(
-    *,
-    vectorstore: Chroma,
+    vectorstore,
     query: str,
     fallback_filters: list[dict[str, Any]],
     k: int,
@@ -141,10 +140,12 @@ def search_with_fallback(
     """
 
     for stage_index, metadata_filter in enumerate(fallback_filters, start=1):
+        chroma_filter = convert_to_chroma_filter(metadata_filter)
+
         scored_documents = vectorstore.similarity_search_with_score(
             query=query,
             k=k,
-            filter=metadata_filter,
+            filter=chroma_filter,
         )
 
         if scored_documents:
@@ -170,14 +171,25 @@ def search_with_fallback(
 
 
 def retrieve_docs(
-    retrieval_query: RetrievalQuery,
+    retrieval_query: RetrievalQuery | None = None,
+    *,
+    query: str | None = None,
+    category: str = "hair",
+    gender: str | None = None,
+    face_shape: str | None = None,
+    face_proportion: str | None = None,
+    style_code: str | None = None,
+    k: int | None = None,
 ) -> RetrievalResult:
     """
     rag_core 외부에서 사용하는 대표 검색 함수.
 
     현재 1차 구현은 hair category를 우선 지원한다.
 
-    예:
+    두 가지 호출 방식을 모두 지원한다.
+
+    1) RetrievalQuery 객체로 호출:
+
         result = retrieve_docs(
             RetrievalQuery(
                 query="퀴프 스타일이 둥근형 남성에게 어울리는 이유",
@@ -189,7 +201,33 @@ def retrieve_docs(
                 k=5,
             )
         )
+
+    2) keyword argument로 호출:
+
+        result = retrieve_docs(
+            query="퀴프 스타일이 둥근형 남성에게 어울리는 이유",
+            category="hair",
+            gender="남성",
+            face_shape="둥근형",
+            face_proportion="균형",
+            style_code="m-10",
+            k=5,
+        )
     """
+
+    if retrieval_query is None:
+        if not query:
+            raise ValueError("retrieve_docs 호출 시 query 값이 필요합니다.")
+
+        retrieval_query = RetrievalQuery(
+            query=query,
+            category=category,
+            gender=gender,
+            face_shape=face_shape,
+            face_proportion=face_proportion,
+            style_code=style_code,
+            k=k or DEFAULT_RETRIEVAL_K,
+        )
 
     category = retrieval_query.category or "hair"
     k = retrieval_query.k or DEFAULT_RETRIEVAL_K
@@ -216,3 +254,38 @@ def retrieve_docs(
         fallback_filters=fallback_filters,
         k=k,
     )
+
+def convert_to_chroma_filter(metadata_filter: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    일반 metadata filter dict를 ChromaDB where 문법으로 변환한다.
+
+    예:
+        {"category": "hair", "gender": "남성"}
+
+    변환:
+        {
+            "$and": [
+                {"category": {"$eq": "hair"}},
+                {"gender": {"$eq": "남성"}},
+            ]
+        }
+    """
+
+    cleaned_filter = {
+        key: value
+        for key, value in metadata_filter.items()
+        if value is not None
+    }
+
+    if not cleaned_filter:
+        return None
+
+    conditions = [
+        {key: {"$eq": value}}
+        for key, value in cleaned_filter.items()
+    ]
+
+    if len(conditions) == 1:
+        return conditions[0]
+
+    return {"$and": conditions}

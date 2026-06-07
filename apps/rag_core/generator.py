@@ -1,13 +1,43 @@
 # apps/rag_core/generator.py
 
+import logging
+import time
 from typing import Any
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+logger = logging.getLogger(__name__)
 
 from apps.rag_core.config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
 from apps.rag_core.prompts import build_generation_prompt
 from apps.rag_core.schemas import GenerationInput, GenerationResult
 from apps.rag_core.utils import format_documents_as_context
+
+
+def _is_503(e: Exception) -> bool:
+    text = str(e).lower()
+    return "503" in text or "service unavailable" in text or "unavailable" in text
+
+
+def invoke_with_retry(chat_model: ChatGoogleGenerativeAI, prompt: str, max_retries: int = 3) -> Any:
+    last_exc: Exception | None = None
+
+    for attempt in range(1, max_retries + 2):
+        try:
+            return chat_model.invoke(prompt)
+        except Exception as e:
+            if not _is_503(e): 
+                raise
+            last_exc = e
+            if attempt <= max_retries:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Gemini 503 오류 (시도 %d/%d), %d초 후 재시도: %s",
+                    attempt, max_retries + 1, wait, e,
+                )
+                time.sleep(wait)
+
+    raise last_exc
 
 
 def get_chat_model() -> ChatGoogleGenerativeAI:
@@ -126,7 +156,7 @@ def generate_answer(
     )
 
     chat_model = get_chat_model()
-    response = chat_model.invoke(prompt)
+    response = invoke_with_retry(chat_model, prompt)
 
     answer = getattr(response, "content", str(response))
 
