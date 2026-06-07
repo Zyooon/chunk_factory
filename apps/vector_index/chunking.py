@@ -42,7 +42,7 @@ def format_styles(styles: list, empty_message: str) -> str:
        [
            {
                "style_name": "리프",
-               "style_group": "m-10",
+               "style_code": "m-10",
                "style_features": ["비대칭 가르마", "정수리 볼륨"]
            }
        ]
@@ -66,8 +66,8 @@ def format_styles(styles: list, empty_message: str) -> str:
                 "스타일명 정보 없음",
             )
 
-            style_group = _safe_text(
-                style.get("style_group"),
+            style_code = _safe_text(
+                style.get("style_code"),
                 "스타일 그룹 정보 없음",
             )
 
@@ -82,7 +82,7 @@ def format_styles(styles: list, empty_message: str) -> str:
                 feature_text = "특징 정보 없음"
 
             lines.append(f"- {style_name}")
-            lines.append(f"  스타일 그룹: {style_group}")
+            lines.append(f"  스타일 코드: {style_code}")
             lines.append(f"  특징: {feature_text}")
             continue
 
@@ -123,7 +123,7 @@ def extract_style_names(styles: list) -> str:
 
     return ", ".join(names)
 
-def extract_style_groups(styles: list) -> str:
+def extract_style_codes(styles: list) -> str:
     """
     metadata에 저장할 스타일 그룹 코드만 추출한다.
 
@@ -141,7 +141,7 @@ def extract_style_groups(styles: list) -> str:
 
     for style in styles:
         if isinstance(style, dict):
-            group = _safe_text(style.get("style_group"), "")
+            group = _safe_text(style.get("style_code"), "")
             if group:
                 groups.append(group)
 
@@ -226,10 +226,10 @@ def build_metadata(item: dict, idx: int) -> dict:
     worst_styles = item.get("worst_styles") or []
 
     style_names = extract_style_names(recommended_styles)
-    style_groups = extract_style_groups(recommended_styles)
+    style_codes = extract_style_codes(recommended_styles)
 
     worst_style_names = extract_style_names(worst_styles)
-    worst_style_groups = extract_style_groups(worst_styles)
+    worst_style_codes = extract_style_codes(worst_styles)
 
     has_worst_style = len(_safe_list(worst_styles)) > 0
 
@@ -240,9 +240,9 @@ def build_metadata(item: dict, idx: int) -> dict:
         "face_shape": face_shape,
         "face_proportion": face_proportion,
         "style_names": style_names,
-        "style_groups": style_groups,
+        "style_codes": style_codes,
         "worst_style_names": worst_style_names,
-        "worst_style_groups": worst_style_groups,
+        "worst_style_codes": worst_style_codes,
         "has_worst_style": has_worst_style,
     }
 
