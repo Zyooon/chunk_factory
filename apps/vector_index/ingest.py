@@ -25,7 +25,7 @@ def find_latest_cleaned_json() -> Path:
 
     if not files:
         raise FileNotFoundError(
-            "cleaned_data 폴더에서 done.json 파일을 찾을 수 없습니다."
+            "cleaned 폴더에서 done.json 파일을 찾을 수 없습니다."
         )
 
     return max(files, key=lambda path: path.stat().st_mtime)

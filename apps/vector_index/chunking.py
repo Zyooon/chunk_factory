@@ -137,15 +137,15 @@ def extract_style_codes(styles: list) -> str:
     if not styles:
         return ""
 
-    groups: list[str] = []
+    codes: list[str] = []
 
     for style in styles:
         if isinstance(style, dict):
-            group = _safe_text(style.get("style_code"), "")
-            if group:
-                groups.append(group)
+            code = _safe_text(style.get("style_code"), "")
+            if code:
+                codes.append(code)
 
-    return ", ".join(groups)
+    return ", ".join(codes)
 
 def build_page_content(item: dict) -> str:
     """
