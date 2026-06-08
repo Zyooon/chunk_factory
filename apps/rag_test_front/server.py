@@ -6,10 +6,12 @@
 접속:
     http://localhost:8000
 
-실제 확인한 hair_analysis_log 컬럼:
-    id, gender, face_shape, style_name, style_type('recommended'/'worst'), face_proportion
-    ※ style_code 컬럼 없음 → 서버의 STYLE_CODE_MAP으로 보완
-    ※ face_shape='남성' 오류 row 3건 존재 → 조회 시 제외
+DB 구조 (정규화 모델 — ingest_beauty_data.py 적재 기준):
+    face_conditions         : id, gender, face_shape, face_proportion,
+                              expert_reasoning_positive, expert_reasoning_negative
+    hair_styles             : style_code (PK), style_name
+    condition_style_mapping : id, condition_id(FK), style_id(FK), is_recommended(0/1)
+    style_features          : id, mapping_id(FK), feature_description
 """
 from __future__ import annotations
 
@@ -48,196 +50,108 @@ _CONTENT_TYPES: dict[str, str] = {
     ".js": "application/javascript; charset=utf-8",
 }
 
-# (gender, style_name) → style_code 매핑
-# DB에는 style_code 컬럼이 없으므로 서버에서 보완
-# DB에만 있는 스타일(크루, 가일, 보니 등)은 None 처리됨
-_STYLE_CODE_MAP: dict[tuple[str, str], str] = {
-    # 남성
-    ("남성", "버즈"):       "m-01",
-    ("남성", "하이앤타이트"): "m-02",
-    ("남성", "아이비리그"):  "m-03",
-    ("남성", "크롭"):       "m-04",
-    ("남성", "드롭"):       "m-05",
-    ("남성", "슬릭"):       "m-06",
-    ("남성", "허밍"):       "m-07",
-    ("남성", "댄디"):       "m-08",
-    ("남성", "리프"):       "m-09",
-    ("남성", "퀴프"):       "m-10",
-    ("남성", "울프"):       "m-11",
-    ("남성", "애즈"):       "m-12",
-    ("남성", "시스루"):     "m-13",
-    ("남성", "쉐도우"):     "m-14",
-    ("남성", "베이비"):     "m-15",
-    ("남성", "포마드"):     "m-16",
-    ("남성", "히피"):       "m-17",
-    ("남성", "그런지"):     "m-18",
-    ("남성", "리젠트"):     "m-19",
-    # 여성
-    ("여성", "픽시"):       "f-01",
-    ("여성", "프리다"):     "f-02",
-    ("여성", "보브"):       "f-03",
-    ("여성", "태슬"):       "f-04",
-    ("여성", "원랭스"):     "f-05",
-    ("여성", "허그"):       "f-06",
-    ("여성", "빌드"):       "f-07",
-    ("여성", "레이어드"):   "f-08",
-    ("여성", "허쉬"):       "f-09",
-    ("여성", "샌드"):       "f-10",
-    ("여성", "샤기"):       "f-11",
-    ("여성", "울프"):       "f-12",
-    ("여성", "버드"):       "f-13",
-    ("여성", "히메"):       "f-14",
-    ("여성", "다이앤"):     "f-15",
-    ("여성", "레아"):       "f-16",
-    ("여성", "레인"):       "f-17",
-    ("여성", "그레이스"):   "f-18",
-    ("여성", "엘리자벳"):  "f-19",
-    ("여성", "페미닌"):     "f-20",
-    ("여성", "벌룬"):       "f-21",
-    ("여성", "코튼"):       "f-22",
-    ("여성", "발롱"):       "f-23",
-    ("여성", "구름"):       "f-24",
-    ("여성", "젤리"):       "f-25",
-    ("여성", "러플"):       "f-26",
-    ("여성", "바그"):       "f-27",
-    ("여성", "프릴"):       "f-28",
-    ("여성", "윈드"):       "f-29",
-    ("여성", "그런지"):     "f-30",
-}
-
-# 유효한 face_shape 값 (face_shape='남성' 같은 오류 row 제외용)
-_VALID_FACE_SHAPES = {"각진형", "계란형", "둥근형", "역삼각형", "장방형"}
-
-# style_name으로 올 수 없는 값 (얼굴형명, 성별명이 잘못 들어간 오류 row 제외용)
-_INVALID_STYLE_NAMES = {"각진형", "계란형", "둥근형", "역삼각형", "장방형", "남성", "여성"}
-
-
 def _get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def _lookup_style_code(gender: str, style_name: str) -> str | None:
-    return _STYLE_CODE_MAP.get((gender, style_name))
-
-
 def _query_hair_options(gender: str, face_shape: str, face_proportion: str) -> dict:
-    """DB에서 조건에 맞는 추천/비추천 스타일 목록을 반환한다."""
-    if face_shape not in _VALID_FACE_SHAPES:
-        return {
-            "recommended_styles": [],
-            "worst_styles": [],
-            "source": {"table": "hair_analysis_log", "matched_count": 0},
-            "warning": f"유효하지 않은 face_shape: {face_shape}",
-        }
-
+    """정규화 테이블(face_conditions + condition_style_mapping + hair_styles)에서
+    조건에 맞는 추천/비추천 스타일 목록을 반환한다."""
     with _get_db() as conn:
         cur = conn.cursor()
 
         cur.execute(
             """
-            SELECT DISTINCT style_name, style_type
-            FROM hair_analysis_log
-            WHERE gender = ?
-              AND face_shape = ?
-              AND face_proportion = ?
-              AND face_shape != gender
-            ORDER BY style_name
+            SELECT
+                hs.style_name,
+                hs.style_code,
+                csm.is_recommended
+            FROM condition_style_mapping csm
+            JOIN face_conditions fc  ON csm.condition_id = fc.id
+            JOIN hair_styles     hs  ON csm.style_id     = hs.style_code
+            WHERE fc.gender          = ?
+              AND fc.face_shape      = ?
+              AND fc.face_proportion = ?
+            ORDER BY csm.is_recommended DESC, hs.style_name
             """,
             (gender, face_shape, face_proportion),
         )
-        # 오류 row 필터: style_name에 얼굴형·성별명이 잘못 들어간 케이스 제거
         rows = cur.fetchall()
 
-        cur.execute(
-            """
-            SELECT COUNT(*) FROM hair_analysis_log
-            WHERE gender = ? AND face_shape = ? AND face_proportion = ?
-              AND face_shape != gender
-            """,
-            (gender, face_shape, face_proportion),
-        )
-        total = cur.fetchone()[0]
+    if not rows:
+        return {
+            "recommended_styles": [],
+            "worst_styles": [],
+            "source": {
+                "table": "condition_style_mapping",
+                "matched_count": 0,
+            },
+        }
 
     recommended: list[dict] = []
     worst: list[dict] = []
-    seen_rec: set[str] = set()
-    seen_worst: set[str] = set()
 
     for row in rows:
-        name = row["style_name"]
-        stype = row["style_type"]
-
-        # 얼굴형·성별명이 style_name에 잘못 들어간 오류 row 건너뜀
-        if name in _INVALID_STYLE_NAMES:
-            continue
-
-        code = _lookup_style_code(gender, name)
-
-        if stype == "recommended" and name not in seen_rec:
-            seen_rec.add(name)
-            recommended.append({"style_name": name, "style_code": code})
-        elif stype == "worst" and name not in seen_worst:
-            seen_worst.add(name)
-            worst.append({"style_name": name, "style_code": code})
+        entry = {"style_name": row["style_name"], "style_code": row["style_code"]}
+        if row["is_recommended"]:
+            recommended.append(entry)
+        else:
+            worst.append(entry)
 
     return {
         "recommended_styles": recommended,
         "worst_styles": worst,
         "source": {
-            "table": "hair_analysis_log",
-            "matched_count": total,
+            "table": "condition_style_mapping",
+            "matched_count": len(rows),
         },
     }
 
 
 def _query_hair_stats() -> dict:
-    """hair_analysis_log 전체를 집계해 스타일별 추천/비추천 카운트를 반환한다."""
+    """정규화 테이블 전체를 집계해 스타일별 추천/비추천 카운트를 반환한다."""
     with _get_db() as conn:
         cur = conn.cursor()
 
-        # 얼굴형·성별명이 style_name에 잘못 들어간 오류 row도 제외
-        _placeholders = ",".join("?" * len(_INVALID_STYLE_NAMES))
         cur.execute(
-            f"""
+            """
             SELECT
-                gender,
-                style_name,
-                SUM(CASE WHEN style_type = 'recommended' THEN 1 ELSE 0 END) AS recommended_count,
-                SUM(CASE WHEN style_type = 'worst'       THEN 1 ELSE 0 END) AS worst_count,
+                fc.gender,
+                hs.style_name,
+                hs.style_code,
+                SUM(CASE WHEN csm.is_recommended = 1 THEN 1 ELSE 0 END) AS recommended_count,
+                SUM(CASE WHEN csm.is_recommended = 0 THEN 1 ELSE 0 END) AS worst_count,
                 COUNT(*) AS total_count
-            FROM hair_analysis_log
-            WHERE face_shape != gender
-              AND style_name NOT IN ({_placeholders})
-            GROUP BY gender, style_name
-            ORDER BY recommended_count DESC, gender, style_name
-            """,
-            tuple(_INVALID_STYLE_NAMES),
+            FROM condition_style_mapping csm
+            JOIN face_conditions fc  ON csm.condition_id = fc.id
+            JOIN hair_styles     hs  ON csm.style_id     = hs.style_code
+            GROUP BY fc.gender, hs.style_code
+            ORDER BY recommended_count DESC, fc.gender, hs.style_name
+            """
         )
         rows = cur.fetchall()
 
-        cur.execute("SELECT COUNT(*) FROM hair_analysis_log WHERE face_shape != gender")
+        cur.execute("SELECT COUNT(*) FROM condition_style_mapping")
         total_rows = cur.fetchone()[0]
 
-    items = []
-    for row in rows:
-        gender = row["gender"]
-        name = row["style_name"]
-        code = _lookup_style_code(gender, name)
-        items.append({
-            "gender": gender,
-            "style_name": name,
-            "style_code": code,
-            "recommended_count": row["recommended_count"],
-            "worst_count": row["worst_count"],
-            "total_count": row["total_count"],
-        })
+    items = [
+        {
+            "gender":             row["gender"],
+            "style_name":         row["style_name"],
+            "style_code":         row["style_code"],
+            "recommended_count":  row["recommended_count"],
+            "worst_count":        row["worst_count"],
+            "total_count":        row["total_count"],
+        }
+        for row in rows
+    ]
 
     return {
         "items": items,
         "summary": {
-            "total_rows": total_rows,
+            "total_rows":   total_rows,
             "total_styles": len(items),
         },
     }
