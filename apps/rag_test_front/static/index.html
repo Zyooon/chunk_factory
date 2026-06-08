@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beauty RAG 로컬 테스트 (Hair)</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <header>
+    <h1>Beauty RAG 로컬 테스트 &mdash; Hair</h1>
+    <div class="sample-buttons">
+      <button id="btn-sample-male">샘플 남성 데이터</button>
+      <button id="btn-sample-female">샘플 여성 데이터</button>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- ═══ 분석 테스트 ═══ -->
+    <section class="card" id="analysis-section">
+      <h2>1. 최초 분석 테스트</h2>
+
+      <div class="form-group">
+        <label class="field-label">성별</label>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="gender" value="남성"> 남성
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="gender" value="여성"> 여성
+          </label>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="field-label" for="face-shape">얼굴형</label>
+          <select id="face-shape">
+            <option value="계란형">계란형</option>
+            <option value="둥근형">둥근형</option>
+            <option value="각진형">각진형</option>
+            <option value="장방형">장방형</option>
+            <option value="역삼각형">역삼각형</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="field-label" for="face-proportion">삼정 비율</label>
+          <select id="face-proportion">
+            <option value="균형">균형</option>
+            <option value="상안부_긴형">상안부_긴형</option>
+            <option value="중안부_긴형">중안부_긴형</option>
+            <option value="하안부_긴형">하안부_긴형</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="field-label">추천 헤어스타일 <span class="hint">정확히 3개 선택</span></label>
+        <div id="style-list" class="style-grid"></div>
+        <div id="style-count" class="style-count">0 / 3 선택됨</div>
+      </div>
+
+      <div class="form-actions">
+        <button id="btn-analyze" class="btn-primary">분석 결과 생성</button>
+      </div>
+
+      <div id="analysis-error" class="error-box hidden"></div>
+
+      <div id="analysis-result" class="result-area hidden">
+        <h3>분석 결과</h3>
+
+        <div class="result-block">
+          <h4 class="result-label">분석 요약</h4>
+          <div id="res-summary" class="result-text"></div>
+        </div>
+
+        <div class="result-block">
+          <h4 class="result-label">헤어 추천 정보</h4>
+          <div id="res-hair" class="result-text mono"></div>
+        </div>
+
+        <div class="result-block">
+          <h4 class="result-label">검색 정보</h4>
+          <div id="res-retrieval" class="result-text mono"></div>
+        </div>
+
+        <details>
+          <summary>Raw JSON 보기 / 접기</summary>
+          <pre id="res-raw-json"></pre>
+        </details>
+      </div>
+    </section>
+
+    <!-- ═══ 챗봇 테스트 ═══ -->
+    <section class="card" id="chatbot-section">
+      <h2>2. 챗봇 테스트</h2>
+
+      <div class="chatbot-context">
+        <h3 class="context-title">현재 컨텍스트 <span class="hint">(분석 후 자동 채워짐)</span></h3>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="field-label" for="chat-gender">성별</label>
+            <input type="text" id="chat-gender" placeholder="남성">
+          </div>
+          <div class="form-group">
+            <label class="field-label" for="chat-face-shape">얼굴형</label>
+            <input type="text" id="chat-face-shape" placeholder="둥근형">
+          </div>
+          <div class="form-group">
+            <label class="field-label" for="chat-face-proportion">삼정 비율</label>
+            <input type="text" id="chat-face-proportion" placeholder="균형">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="field-label" for="chat-prev-analysis">이전 분석 요약</label>
+          <textarea id="chat-prev-analysis" rows="3" placeholder="분석 결과 생성 후 자동으로 채워집니다."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="field-label" for="chat-prev-recs">이전 추천 스타일 (JSON)</label>
+          <textarea id="chat-prev-recs" rows="3" placeholder='[{"style_name": "리프", "style_code": "m-09"}, ...]'></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="field-label" for="chat-user-profile">user_profile (JSON)</label>
+          <textarea id="chat-user-profile" rows="2">{}</textarea>
+        </div>
+
+        <label class="checkbox-label">
+          <input type="checkbox" id="skip-analysis">
+          분석 결과 없이 챗봇 테스트 (missing_analysis 동작 확인)
+        </label>
+      </div>
+
+      <div id="chat-history" class="chat-history">
+        <div class="chat-empty">대화 기록이 없습니다.</div>
+      </div>
+
+      <div class="chat-input-area">
+        <textarea id="chat-message" rows="2" placeholder="질문을 입력하세요... (Enter: 줄바꿈)"></textarea>
+        <div class="form-actions">
+          <button id="btn-chat" class="btn-primary">챗봇 질문 보내기</button>
+          <button id="btn-reset-chat">대화 기록 초기화</button>
+        </div>
+      </div>
+
+      <div id="chatbot-error" class="error-box hidden"></div>
+
+      <div id="chatbot-result" class="result-area hidden">
+        <h3>마지막 응답 상세</h3>
+
+        <div class="result-block">
+          <h4 class="result-label">intent / category / needs_clarification</h4>
+          <div id="res-intent" class="result-text mono"></div>
+        </div>
+
+        <div class="result-block">
+          <h4 class="result-label">검색 정보</h4>
+          <div id="res-chat-retrieval" class="result-text mono"></div>
+        </div>
+
+        <div class="result-block">
+          <h4 class="result-label">업데이트된 user_profile</h4>
+          <pre id="res-updated-profile"></pre>
+        </div>
+
+        <details>
+          <summary>Raw JSON 보기 / 접기</summary>
+          <pre id="res-chat-raw-json"></pre>
+        </details>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
