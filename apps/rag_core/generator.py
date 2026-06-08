@@ -13,6 +13,7 @@ from apps.rag_core.config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
 from apps.rag_core.prompts import build_generation_prompt
 from apps.rag_core.schemas import (
     AnalysisGenerationInput,
+    ChatGenerationInput,
     GenerationInput,
     GenerationResult,
     RetrievalResult,
@@ -302,5 +303,173 @@ def generate_analysis_answer(
     return GenerationResult(
         answer=normalize_model_content(response.content),
         retrieval_result=RetrievalResult(query="analysis_rag"),
+        model_name=GEMINI_CHAT_MODEL,
+    )
+
+def format_previous_recommendations_for_prompt(
+    previous_recommendations: list[dict[str, Any]],
+) -> str:
+    """
+    이전 추천 스타일 목록을 프롬프트용 문자열로 변환한다.
+
+    주의:
+    - style_code는 내부 식별자이므로 최종 답변에 노출하면 안 된다.
+    - 프롬프트에 전달하는 추천 목록에서도 style_code를 제거한다.
+    """
+
+    if not previous_recommendations:
+        return "이전 추천 스타일 정보가 없습니다."
+
+    lines: list[str] = []
+
+    for recommendation in previous_recommendations:
+        style_name = recommendation.get("style_name")
+
+        if style_name:
+            lines.append(f"- {style_name}")
+
+    if not lines:
+        return "이전 추천 스타일 정보가 없습니다."
+
+    return "\n".join(lines)
+
+
+def format_chat_history_for_prompt(
+    chat_history: list[dict[str, str]],
+    max_messages: int = 10,
+) -> str:
+    """
+    최근 대화 기록을 프롬프트용 문자열로 변환한다.
+
+    전체 대화를 모두 넣지 않고 최근 max_messages개만 사용한다.
+    """
+
+    if not chat_history:
+        return "최근 대화 기록이 없습니다."
+
+    recent_history = chat_history[-max_messages:]
+
+    lines: list[str] = []
+
+    for message in recent_history:
+        role = message.get("role", "")
+        content = message.get("content", "")
+
+        if not content:
+            continue
+
+        if role == "user":
+            role_label = "사용자"
+        elif role == "assistant":
+            role_label = "상담사"
+        else:
+            role_label = role or "알 수 없음"
+
+        lines.append(f"{role_label}: {content}")
+
+    if not lines:
+        return "최근 대화 기록이 없습니다."
+
+    return "\n".join(lines)
+
+
+def build_chat_generation_prompt(
+    generation_input: ChatGenerationInput,
+) -> str:
+    """
+    chatbot_rag 답변 생성을 위한 최종 프롬프트를 만든다.
+    """
+
+    retrieved_context = format_documents_as_context(
+        generation_input.retrieval_result.documents
+    )
+
+    previous_recommendations_text = format_previous_recommendations_for_prompt(
+        generation_input.previous_recommendations
+    )
+
+    chat_history_text = format_chat_history_for_prompt(
+        generation_input.chat_history
+    )
+
+    return f"""
+당신은 뷰티 디자이너처럼 다정하고 전문적으로 상담하는 RAG 챗봇입니다.
+
+[중요 규칙]
+1. 사용자의 진단 정보, 최초 분석 결과, 이전 추천 스타일, 최근 대화 흐름을 함께 반영하세요.
+2. 검색된 참고 문맥이 있으면 그 내용을 우선 근거로 사용하세요.
+3. 검색된 참고 문맥이 부족하면 이전 분석 결과와 이전 추천 스타일을 기준으로 보수적으로 답변하세요.
+4. 검색 문맥과 이전 추천 목록 밖의 헤어스타일을 새로 추천하지 마세요.
+5. 데이터가 부족하면 "현재 확보된 데이터 기준으로는"이라고 표현하세요.
+6. 답변에는 반드시 이유를 포함하세요.
+7. style_code, doc_id, metadata key 같은 내부 식별자는 최종 답변에 절대 노출하지 마세요.
+8. 현재 1차 구현 범위는 헤어 상담입니다. 메이크업 상담은 아직 확정적으로 답하지 마세요.
+
+[사용자 진단 정보]
+- 성별: {generation_input.gender}
+- 얼굴형: {generation_input.face_shape}
+- 삼정 비율: {generation_input.face_proportion}
+
+[질문 의도]
+{generation_input.intent or "분류되지 않음"}
+
+[최초 분석 결과]
+{generation_input.previous_analysis or "이전 분석 결과가 없습니다."}
+
+[이전 추천 헤어스타일]
+{previous_recommendations_text}
+
+[유저 취향 정보]
+{generation_input.user_profile if generation_input.user_profile else "추가 취향 정보가 없습니다."}
+
+[최근 대화 기록]
+{chat_history_text}
+
+[검색된 참고 문맥]
+{retrieved_context}
+
+[사용자 질문]
+{generation_input.user_message}
+
+[답변 작성 지침]
+- 사용자의 질문에 직접 답하세요.
+- 이전 분석 결과와 추천 스타일을 기준으로 연결감 있게 답하세요.
+- 손질, 유지관리, 비교 질문이면 장단점을 쉽게 설명하세요.
+- 근거가 부족하면 단정하지 말고 부족하다고 말하세요.
+- 최종 답변은 3~6문장 정도로 자연스럽게 작성하세요.
+""".strip()
+
+
+def generate_chat_answer(
+    generation_input: ChatGenerationInput,
+) -> GenerationResult:
+    """
+    chatbot_rag용 답변 생성 함수.
+
+    RAG_GENERATOR_MODE=mock이면 Gemini를 호출하지 않고 개발용 응답을 반환한다.
+    """
+
+    prompt = build_chat_generation_prompt(generation_input)
+
+    generator_mode = os.getenv("RAG_GENERATOR_MODE", "gemini")
+
+    if generator_mode == "mock":
+        return GenerationResult(
+            answer=(
+                "현재는 개발용 mock 챗봇 응답입니다. "
+                f"{generation_input.gender} / {generation_input.face_shape} / "
+                f"{generation_input.face_proportion} 조건과 이전 분석 결과를 바탕으로 "
+                f"'{generation_input.user_message}' 질문에 답변할 예정입니다."
+            ),
+            retrieval_result=generation_input.retrieval_result,
+            model_name="mock",
+        )
+
+    chat_model = get_chat_model()
+    response = invoke_with_retry(chat_model=chat_model, prompt=prompt)
+
+    return GenerationResult(
+        answer=normalize_model_content(response.content),
+        retrieval_result=generation_input.retrieval_result,
         model_name=GEMINI_CHAT_MODEL,
     )

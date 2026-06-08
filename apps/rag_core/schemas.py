@@ -122,6 +122,55 @@ class AnalysisGenerationInput:
     recommended_styles: list[dict[str, Any]]
     retrieval_results: list[RetrievalResult]
 
+@dataclass
+class ChatGenerationInput:
+    """
+    챗봇 답변 생성을 위한 입력 스키마.
+
+    chatbot_rag는 최초 분석 이후의 후속 상담 기능이므로
+    사용자 질문뿐 아니라 이전 분석 결과, 추천 결과, 대화 히스토리를 함께 사용한다.
+
+    user_message:
+        사용자의 현재 질문
+
+    gender / face_shape / face_proportion:
+        최초 분석에서 확보된 사용자 진단 정보
+
+    previous_analysis:
+        analysis_rag가 생성한 최초 종합 분석문
+
+    previous_recommendations:
+        알고리즘이 추천한 헤어스타일 목록
+
+    user_profile:
+        대화 중 누적된 유저 취향 정보
+
+    chat_history:
+        최근 대화 기록
+
+    retrieval_result:
+        현재 질문에 대해 ChromaDB에서 검색한 RAG 결과
+
+    intent:
+        classify_intent 노드에서 분류한 질문 의도
+    """
+
+    user_message: str
+    gender: str
+    face_shape: str
+    face_proportion: str
+
+    previous_analysis: str | dict[str, Any] | None = None
+    previous_recommendations: list[dict[str, Any]] = field(default_factory=list)
+
+    user_profile: dict[str, Any] = field(default_factory=dict)
+    chat_history: list[dict[str, str]] = field(default_factory=list)
+
+    retrieval_result: RetrievalResult = field(
+        default_factory=lambda: RetrievalResult(query="")
+    )
+
+    intent: Optional[str] = None
 
 @dataclass
 class GenerationResult:
