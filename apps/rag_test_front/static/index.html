@@ -10,9 +10,12 @@
 
   <header>
     <h1>Beauty RAG 로컬 테스트 &mdash; Hair</h1>
-    <div class="sample-buttons">
-      <button id="btn-sample-male">샘플 남성 데이터</button>
-      <button id="btn-sample-female">샘플 여성 데이터</button>
+    <div class="header-right">
+      <div class="sample-buttons">
+        <button id="btn-sample-male">샘플 남성</button>
+        <button id="btn-sample-female">샘플 여성</button>
+      </div>
+      <a href="/stats.html" class="stats-link">데이터 통계 &rarr;</a>
     </div>
   </header>
 
@@ -22,15 +25,12 @@
     <section class="card" id="analysis-section">
       <h2>1. 최초 분석 테스트</h2>
 
+      <!-- 조건 선택 -->
       <div class="form-group">
         <label class="field-label">성별</label>
         <div class="radio-group">
-          <label class="radio-label">
-            <input type="radio" name="gender" value="남성"> 남성
-          </label>
-          <label class="radio-label">
-            <input type="radio" name="gender" value="여성"> 여성
-          </label>
+          <label class="radio-label"><input type="radio" name="gender" value="남성"> 남성</label>
+          <label class="radio-label"><input type="radio" name="gender" value="여성"> 여성</label>
         </div>
       </div>
 
@@ -45,26 +45,49 @@
             <option value="역삼각형">역삼각형</option>
           </select>
         </div>
-
         <div class="form-group">
           <label class="field-label" for="face-proportion">삼정 비율</label>
           <select id="face-proportion">
             <option value="균형">균형</option>
             <option value="상안부_긴형">상안부_긴형</option>
+            <option value="상안부_짧은형">상안부_짧은형</option>
             <option value="중안부_긴형">중안부_긴형</option>
+            <option value="중안부_짧은형">중안부_짧은형</option>
             <option value="하안부_긴형">하안부_긴형</option>
+            <option value="하안부_짧은형">하안부_짧은형</option>
           </select>
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="field-label">추천 헤어스타일 <span class="hint">정확히 3개 선택</span></label>
-        <div id="style-list" class="style-grid"></div>
-        <div id="style-count" class="style-count">0 / 3 선택됨</div>
+      <!-- 추천 헤어 불러오기 -->
+      <div class="form-actions">
+        <button id="btn-load-options" class="btn-secondary">추천 헤어 불러오기</button>
       </div>
 
+      <div id="options-error" class="error-box hidden"></div>
+
+      <!-- DB 기반 추천/비추천 목록 -->
+      <div id="hair-options-area" class="hidden">
+
+        <div class="form-group">
+          <label class="field-label">
+            추천 헤어스타일
+            <span class="hint">정확히 3개 선택 후 분석 결과 생성</span>
+          </label>
+          <div id="style-list" class="style-grid"></div>
+          <div id="style-count" class="style-count">0 / 3 선택됨</div>
+        </div>
+
+        <div id="worst-area" class="hidden">
+          <label class="field-label">비추천 헤어스타일 <span class="hint">(참고용)</span></label>
+          <div id="worst-list" class="worst-list"></div>
+        </div>
+
+      </div>
+
+      <!-- 분석 실행 -->
       <div class="form-actions">
-        <button id="btn-analyze" class="btn-primary">분석 결과 생성</button>
+        <button id="btn-analyze" class="btn-primary" disabled>분석 결과 생성</button>
       </div>
 
       <div id="analysis-error" class="error-box hidden"></div>
@@ -78,17 +101,17 @@
         </div>
 
         <div class="result-block">
-          <h4 class="result-label">헤어 추천 정보</h4>
+          <h4 class="result-label">헤어 추천 정보 <span class="dev-badge">개발 확인용</span></h4>
           <div id="res-hair" class="result-text mono"></div>
         </div>
 
         <div class="result-block">
-          <h4 class="result-label">검색 정보</h4>
+          <h4 class="result-label">검색 정보 <span class="dev-badge">개발 확인용</span></h4>
           <div id="res-retrieval" class="result-text mono"></div>
         </div>
 
         <details>
-          <summary>Raw JSON 보기 / 접기</summary>
+          <summary>Raw JSON 보기 / 접기 <span class="dev-badge">개발 확인용</span></summary>
           <pre id="res-raw-json"></pre>
         </details>
       </div>
@@ -122,7 +145,10 @@
         </div>
 
         <div class="form-group">
-          <label class="field-label" for="chat-prev-recs">이전 추천 스타일 (JSON)</label>
+          <label class="field-label" for="chat-prev-recs">
+            이전 추천 스타일 (JSON)
+            <span class="dev-badge">개발 확인용 — style_code 포함</span>
+          </label>
           <textarea id="chat-prev-recs" rows="3" placeholder='[{"style_name": "리프", "style_code": "m-09"}, ...]'></textarea>
         </div>
 
@@ -142,7 +168,7 @@
       </div>
 
       <div class="chat-input-area">
-        <textarea id="chat-message" rows="2" placeholder="질문을 입력하세요... (Enter: 줄바꿈)"></textarea>
+        <textarea id="chat-message" rows="2" placeholder="질문을 입력하세요..."></textarea>
         <div class="form-actions">
           <button id="btn-chat" class="btn-primary">챗봇 질문 보내기</button>
           <button id="btn-reset-chat">대화 기록 초기화</button>
@@ -160,17 +186,17 @@
         </div>
 
         <div class="result-block">
-          <h4 class="result-label">검색 정보</h4>
+          <h4 class="result-label">검색 정보 <span class="dev-badge">개발 확인용</span></h4>
           <div id="res-chat-retrieval" class="result-text mono"></div>
         </div>
 
         <div class="result-block">
-          <h4 class="result-label">업데이트된 user_profile</h4>
+          <h4 class="result-label">업데이트된 user_profile <span class="dev-badge">개발 확인용</span></h4>
           <pre id="res-updated-profile"></pre>
         </div>
 
         <details>
-          <summary>Raw JSON 보기 / 접기</summary>
+          <summary>Raw JSON 보기 / 접기 <span class="dev-badge">개발 확인용</span></summary>
           <pre id="res-chat-raw-json"></pre>
         </details>
       </div>

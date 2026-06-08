@@ -18,6 +18,7 @@ header {
   padding: 12px 20px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
 }
@@ -26,6 +27,13 @@ header h1 {
   font-size: 0.95rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .sample-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -41,6 +49,14 @@ header h1 {
   transition: background 0.15s;
 }
 .sample-buttons button:hover { background: #3a3a3c; }
+
+.stats-link {
+  color: #64d2ff;
+  font-size: 0.8rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.stats-link:hover { text-decoration: underline; }
 
 /* ── Layout ────────────────────────────────────────────────────────── */
 main.layout {
@@ -175,6 +191,46 @@ textarea:focus {
 }
 
 .style-count.done { color: #34c759; font-weight: 600; }
+
+/* ── 비추천 목록 ────────────────────────────────────────────────────── */
+.worst-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.worst-tag {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #fff0f0;
+  border: 1px solid #ffb3b3;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  color: #c0392b;
+}
+
+/* ── 개발 확인용 배지 ───────────────────────────────────────────────── */
+.dev-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: #fff;
+  background: #8e8e93;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 5px;
+  vertical-align: middle;
+  letter-spacing: 0;
+}
+
+/* ── btn-secondary ──────────────────────────────────────────────────── */
+.btn-secondary {
+  background: #34c759;
+  color: #fff;
+}
+.btn-secondary:hover:not(:disabled) { background: #2db84e; }
+.btn-secondary:disabled { background: #b0b0b5; cursor: not-allowed; }
 
 /* ── Buttons ───────────────────────────────────────────────────────── */
 .form-actions {

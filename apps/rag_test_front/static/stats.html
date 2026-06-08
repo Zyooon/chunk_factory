@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>헤어스타일 RAG 데이터 통계</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* ── 통계 페이지 전용 ── */
+    .stats-header {
+      background: #1c1c1e;
+      color: #f2f2f7;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .stats-header h1 { font-size: 0.95rem; font-weight: 600; }
+
+    .back-link {
+      color: #64d2ff;
+      font-size: 0.82rem;
+      text-decoration: none;
+    }
+    .back-link:hover { text-decoration: underline; }
+
+    .stats-main {
+      max-width: 1000px;
+      margin: 16px auto;
+      padding: 0 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .stats-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    .stats-card h2 {
+      font-size: 0.9rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e5e5ea;
+    }
+
+    .summary-row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .summary-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .summary-value {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #007aff;
+    }
+
+    .summary-label {
+      font-size: 0.72rem;
+      color: #636366;
+    }
+
+    /* 필터 */
+    .filter-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .filter-row label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #636366;
+    }
+
+    .filter-row select {
+      padding: 5px 10px;
+      border: 1px solid #d1d1d6;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    /* 테이블 */
+    .stats-table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    thead th {
+      background: #f2f2f7;
+      padding: 8px 12px;
+      text-align: left;
+      font-weight: 600;
+      color: #636366;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    thead th:hover { background: #e5e5ea; }
+
+    thead th.sort-asc::after  { content: " ▲"; color: #007aff; }
+    thead th.sort-desc::after { content: " ▼"; color: #007aff; }
+
+    tbody tr:nth-child(even) { background: #f9f9fb; }
+    tbody tr:hover { background: #f0f4ff; }
+
+    tbody td {
+      padding: 7px 12px;
+      color: #1c1c1e;
+      white-space: nowrap;
+      border-bottom: 1px solid #f2f2f7;
+    }
+
+    .gender-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+
+    .gender-badge.male   { background: #e3f0ff; color: #0071e3; }
+    .gender-badge.female { background: #ffeaf2; color: #c0392b; }
+
+    .code-cell {
+      font-family: "SF Mono", "Menlo", monospace;
+      font-size: 0.75rem;
+      color: #636366;
+    }
+
+    .bar-cell { min-width: 120px; }
+
+    .bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .bar-bg {
+      flex: 1;
+      height: 6px;
+      background: #e5e5ea;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .bar-fill { height: 100%; border-radius: 3px; }
+    .bar-fill.rec  { background: #34c759; }
+    .bar-fill.wrst { background: #ff3b30; }
+
+    .bar-num {
+      font-size: 0.75rem;
+      font-weight: 600;
+      min-width: 24px;
+      text-align: right;
+    }
+
+    .bar-num.rec  { color: #34c759; }
+    .bar-num.wrst { color: #ff3b30; }
+
+    .no-code { color: #aeaeb2; font-style: italic; }
+
+    #loading-msg { color: #636366; font-size: 0.85rem; padding: 20px; }
+    #stats-error { color: #c0392b; padding: 10px; }
+  </style>
+</head>
+<body>
+
+  <header class="stats-header">
+    <h1>헤어스타일 RAG 데이터 통계 <span class="dev-badge">개발 확인용</span></h1>
+    <a href="/" class="back-link">&larr; 메인 테스트 페이지</a>
+  </header>
+
+  <div class="stats-main">
+
+    <div class="stats-card">
+      <h2>데이터 요약</h2>
+      <div class="summary-row">
+        <div class="summary-item">
+          <span class="summary-value" id="sum-rows">-</span>
+          <span class="summary-label">전체 분석 기록 (행 수)</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-value" id="sum-styles">-</span>
+          <span class="summary-label">집계된 스타일 수</span>
+        </div>
+      </div>
+      <p style="font-size:0.72rem;color:#aeaeb2;">
+        ※ face_shape='남성' 오류 row(3건)는 집계에서 제외됨<br>
+        ※ style_code가 없는 스타일은 DB에만 존재하는 항목 (매핑 미등록)
+      </p>
+    </div>
+
+    <div class="stats-card">
+      <h2>스타일별 추천 / 비추천 등장 횟수</h2>
+
+      <div class="filter-row">
+        <label for="gender-filter">성별 필터:</label>
+        <select id="gender-filter">
+          <option value="all">전체</option>
+          <option value="남성">남성</option>
+          <option value="여성">여성</option>
+        </select>
+        <span style="font-size:0.72rem;color:#aeaeb2;">추천 등장 수 기준 내림차순 기본 정렬</span>
+      </div>
+
+      <div id="loading-msg">데이터 불러오는 중...</div>
+      <div id="stats-error" class="hidden"></div>
+
+      <div class="stats-table-wrap hidden" id="table-wrap">
+        <table id="stats-table">
+          <thead>
+            <tr>
+              <th data-col="gender">성별</th>
+              <th data-col="style_name">스타일명</th>
+              <th data-col="style_code">스타일 코드</th>
+              <th data-col="recommended_count">추천 등장</th>
+              <th data-col="worst_count">비추천 등장</th>
+              <th data-col="total_count">전체 등장</th>
+            </tr>
+          </thead>
+          <tbody id="stats-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/static/stats.js"></script>
+</body>
+</html>

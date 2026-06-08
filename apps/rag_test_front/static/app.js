@@ -1,67 +1,11 @@
 'use strict';
 
-// ── 헤어스타일 데이터 ────────────────────────────────────────────────────────
 // makeup 확장 시: personal_color, makeup_recommendations 항목 추가 가능
-
-const STYLES = {
-  남성: [
-    { code: 'm-01', name: '버즈' },
-    { code: 'm-02', name: '하이앤타이트' },
-    { code: 'm-03', name: '아이비리그' },
-    { code: 'm-04', name: '크롭' },
-    { code: 'm-05', name: '드롭' },
-    { code: 'm-06', name: '슬릭' },
-    { code: 'm-07', name: '허밍' },
-    { code: 'm-08', name: '댄디' },
-    { code: 'm-09', name: '리프' },
-    { code: 'm-10', name: '퀴프' },
-    { code: 'm-11', name: '울프' },
-    { code: 'm-12', name: '애즈' },
-    { code: 'm-13', name: '시스루' },
-    { code: 'm-14', name: '쉐도우' },
-    { code: 'm-15', name: '베이비' },
-    { code: 'm-16', name: '포마드' },
-    { code: 'm-17', name: '히피' },
-    { code: 'm-18', name: '그런지' },
-    { code: 'm-19', name: '리젠트' },
-  ],
-  여성: [
-    { code: 'f-01', name: '픽시' },
-    { code: 'f-02', name: '프리다' },
-    { code: 'f-03', name: '보브' },
-    { code: 'f-04', name: '태슬' },
-    { code: 'f-05', name: '원랭스' },
-    { code: 'f-06', name: '허그' },
-    { code: 'f-07', name: '빌드' },
-    { code: 'f-08', name: '레이어드' },
-    { code: 'f-09', name: '허쉬' },
-    { code: 'f-10', name: '샌드' },
-    { code: 'f-11', name: '샤기' },
-    { code: 'f-12', name: '울프' },
-    { code: 'f-13', name: '버드' },
-    { code: 'f-14', name: '히메' },
-    { code: 'f-15', name: '다이앤' },
-    { code: 'f-16', name: '레아' },
-    { code: 'f-17', name: '레인' },
-    { code: 'f-18', name: '그레이스' },
-    { code: 'f-19', name: '엘리자벳' },
-    { code: 'f-20', name: '페미닌' },
-    { code: 'f-21', name: '벌룬' },
-    { code: 'f-22', name: '코튼' },
-    { code: 'f-23', name: '발롱' },
-    { code: 'f-24', name: '구름' },
-    { code: 'f-25', name: '젤리' },
-    { code: 'f-26', name: '러플' },
-    { code: 'f-27', name: '바그' },
-    { code: 'f-28', name: '프릴' },
-    { code: 'f-29', name: '윈드' },
-    { code: 'f-30', name: '그런지' },
-  ],
-};
 
 // ── 앱 상태 ──────────────────────────────────────────────────────────────────
 const appState = {
   chatHistory: [],
+  dbRecommended: [],  // DB에서 불러온 추천 스타일 목록
 };
 
 // ── DOM 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -69,58 +13,139 @@ const $ = (id) => document.getElementById(id);
 
 // ── 초기화 ───────────────────────────────────────────────────────────────────
 function init() {
-  // 기본 성별 선택
   setGender('남성');
-  renderStyleList('남성');
-
-  // 성별 변경 → 스타일 목록 갱신
-  document.querySelectorAll('input[name="gender"]').forEach((radio) => {
-    radio.addEventListener('change', () => {
-      renderStyleList(radio.value);
-    });
-  });
 
   $('btn-sample-male').addEventListener('click', fillSampleMale);
   $('btn-sample-female').addEventListener('click', fillSampleFemale);
+  $('btn-load-options').addEventListener('click', handleLoadOptions);
   $('btn-analyze').addEventListener('click', handleAnalyze);
   $('btn-chat').addEventListener('click', handleChat);
   $('btn-reset-chat').addEventListener('click', resetChat);
 }
 
-// ── 스타일 체크박스 목록 렌더링 ──────────────────────────────────────────────
-function renderStyleList(gender) {
-  const list = STYLES[gender] || [];
+// ── 샘플 데이터 채우기 ────────────────────────────────────────────────────────
+function fillSampleMale() {
+  setGender('남성');
+  $('face-shape').value = '둥근형';
+  $('face-proportion').value = '균형';
+  handleLoadOptions(); // 조건 채우고 자동 호출
+}
+
+function fillSampleFemale() {
+  setGender('여성');
+  $('face-shape').value = '둥근형';
+  $('face-proportion').value = '균형';
+  handleLoadOptions();
+}
+
+function setGender(value) {
+  document.querySelectorAll('input[name="gender"]').forEach((r) => {
+    r.checked = r.value === value;
+  });
+}
+
+function getGender() {
+  const r = document.querySelector('input[name="gender"]:checked');
+  return r ? r.value : '';
+}
+
+// ── DB 기반 추천 헤어 불러오기 ────────────────────────────────────────────────
+async function handleLoadOptions() {
+  const gender = getGender();
+  const face_shape = $('face-shape').value;
+  const face_proportion = $('face-proportion').value;
+
+  hideError('options-error');
+
+  if (!gender) return showError('options-error', '성별을 선택해주세요.');
+
+  const btn = $('btn-load-options');
+  setLoading(btn, true, '불러오는 중...');
+  $('btn-analyze').disabled = true;
+
+  try {
+    const res = await fetch('/api/hair-options', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gender, face_shape, face_proportion }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      showError('options-error', data.error || `서버 오류 (HTTP ${res.status})`);
+      return;
+    }
+
+    if (data.recommended_styles.length === 0) {
+      showError('options-error', '해당 조건의 추천 데이터가 없습니다. 다른 조건을 선택해주세요.');
+      $('hair-options-area').classList.add('hidden');
+      return;
+    }
+
+    appState.dbRecommended = data.recommended_styles;
+    renderHairOptions(gender, data);
+    $('hair-options-area').classList.remove('hidden');
+
+  } catch (e) {
+    showError('options-error', `네트워크 오류: ${e.message}`);
+  } finally {
+    setLoading(btn, false, '추천 헤어 불러오기');
+  }
+}
+
+function renderHairOptions(gender, data) {
+  // 추천 체크박스 렌더링
   const container = $('style-list');
   container.innerHTML = '';
   setStyleCount(0);
+  $('btn-analyze').disabled = true;
 
-  list.forEach(({ code, name }) => {
+  data.recommended_styles.forEach(({ style_name, style_code }) => {
     const label = document.createElement('label');
 
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.value = code;
-    cb.dataset.name = name;
+    cb.value = style_code || style_name; // style_code 없으면 style_name을 value로
+    cb.dataset.name = style_name;
+    cb.dataset.code = style_code || '';
     cb.addEventListener('change', onStyleCheck);
 
     const span = document.createElement('span');
-    span.textContent = name;
-    span.title = code; // 코드 툴팁으로 제공 (UI 직접 노출 없음)
+    span.textContent = style_name;
+    if (style_code) span.title = `코드: ${style_code}`;
 
     label.appendChild(cb);
     label.appendChild(span);
     container.appendChild(label);
   });
+
+  // 비추천 목록 렌더링
+  const worstArea = $('worst-area');
+  const worstList = $('worst-list');
+  worstList.innerHTML = '';
+
+  if (data.worst_styles && data.worst_styles.length > 0) {
+    worstArea.classList.remove('hidden');
+    data.worst_styles.forEach(({ style_name }) => {
+      const span = document.createElement('span');
+      span.className = 'worst-tag';
+      span.textContent = style_name;
+      worstList.appendChild(span);
+    });
+  } else {
+    worstArea.classList.add('hidden');
+  }
 }
 
 function onStyleCheck() {
   const checked = getCheckedStyles();
   if (checked.length > 3) {
-    // 4번째 선택 방지
     this.checked = false;
     return;
   }
   setStyleCount(checked.length);
+  $('btn-analyze').disabled = checked.length !== 3;
 }
 
 function setStyleCount(n) {
@@ -132,42 +157,10 @@ function setStyleCount(n) {
 function getCheckedStyles() {
   return Array.from(
     document.querySelectorAll('#style-list input[type="checkbox"]:checked')
-  ).map((cb) => ({ style_code: cb.value, style_name: cb.dataset.name }));
-}
-
-function getGender() {
-  const r = document.querySelector('input[name="gender"]:checked');
-  return r ? r.value : '';
-}
-
-// ── 샘플 데이터 채우기 ────────────────────────────────────────────────────────
-function fillSampleMale() {
-  setGender('남성');
-  renderStyleList('남성');
-  $('face-shape').value = '둥근형';
-  $('face-proportion').value = '균형';
-  checkByCodes(['m-09', 'm-10', 'm-08']); // 리프, 퀴프, 댄디
-}
-
-function fillSampleFemale() {
-  setGender('여성');
-  renderStyleList('여성');
-  $('face-shape').value = '둥근형';
-  $('face-proportion').value = '균형';
-  checkByCodes(['f-08', 'f-09', 'f-15']); // 레이어드, 허쉬, 다이앤
-}
-
-function setGender(value) {
-  document.querySelectorAll('input[name="gender"]').forEach((r) => {
-    r.checked = r.value === value;
-  });
-}
-
-function checkByCodes(codes) {
-  document.querySelectorAll('#style-list input[type="checkbox"]').forEach((cb) => {
-    cb.checked = codes.includes(cb.value);
-  });
-  setStyleCount(codes.length);
+  ).map((cb) => ({
+    style_name: cb.dataset.name,
+    style_code: cb.dataset.code || null,
+  }));
 }
 
 // ── 분석 요청 ─────────────────────────────────────────────────────────────────
@@ -179,11 +172,17 @@ async function handleAnalyze() {
 
   hideError('analysis-error');
 
-  if (!gender) {
-    return showError('analysis-error', '성별을 선택해주세요.');
-  }
+  if (!gender) return showError('analysis-error', '성별을 선택해주세요.');
   if (recommended_hair_styles.length !== 3) {
     return showError('analysis-error', '헤어스타일을 정확히 3개 선택해주세요.');
+  }
+  // style_code 없는 스타일이 있으면 경고 (분석 가능하면 진행)
+  const noCode = recommended_hair_styles.filter((s) => !s.style_code);
+  if (noCode.length > 0) {
+    const names = noCode.map((s) => s.style_name).join(', ');
+    showError('analysis-error',
+      `[경고] 다음 스타일은 RAG 코드 매핑이 없어 검색 정확도가 낮을 수 있습니다: ${names}\n계속 진행합니다.`
+    );
   }
 
   const btn = $('btn-analyze');
@@ -209,6 +208,8 @@ async function handleAnalyze() {
     showError('analysis-error', `네트워크 오류: ${e.message}`);
   } finally {
     setLoading(btn, false, '분석 결과 생성');
+    // 3개 선택 상태면 다시 활성화
+    $('btn-analyze').disabled = getCheckedStyles().length !== 3;
   }
 }
 
@@ -218,7 +219,7 @@ function renderAnalysisResult(data) {
   $('res-summary').textContent = data.analysis_summary || '(없음)';
 
   const hairLines = (data.hair_recommendations || []).map(
-    (h) => `${h.style_name} (${h.style_code}) — 검색 ${h.retrieved_count}건, fallback: ${h.fallback_stage ?? 'none'}`
+    (h) => `${h.style_name} (${h.style_code ?? 'code 없음'}) — 검색 ${h.retrieved_count}건, fallback: ${h.fallback_stage ?? 'none'}`
   );
   $('res-hair').textContent = hairLines.join('\n') || '(없음)';
 
@@ -235,7 +236,6 @@ function injectAnalysisToChat({ gender, face_shape, face_proportion, data }) {
   $('chat-face-shape').value = face_shape;
   $('chat-face-proportion').value = face_proportion;
   $('chat-prev-analysis').value = data.analysis_summary || '';
-  // 챗봇에는 style_name + style_code 모두 전달 (디버그 목적)
   $('chat-prev-recs').value = JSON.stringify(data.hair_recommendations || [], null, 2);
   $('chat-user-profile').value = '{}';
 }
@@ -259,7 +259,7 @@ async function handleChat() {
     try {
       previous_recommendations = JSON.parse($('chat-prev-recs').value || '[]');
     } catch {
-      showError('chatbot-error', 'previous_recommendations JSON 파싱 오류 — 올바른 JSON을 입력해주세요.');
+      showError('chatbot-error', 'previous_recommendations JSON 파싱 오류');
       return;
     }
   }
@@ -267,7 +267,7 @@ async function handleChat() {
   try {
     user_profile = JSON.parse($('chat-user-profile').value || '{}');
   } catch {
-    showError('chatbot-error', 'user_profile JSON 파싱 오류 — 올바른 JSON을 입력해주세요.');
+    showError('chatbot-error', 'user_profile JSON 파싱 오류');
     return;
   }
 
@@ -303,13 +303,9 @@ async function handleChat() {
       return;
     }
 
-    const answer = data.answer || '(응답 없음)';
-    appendBubble('assistant', answer);
-
-    // 대화 기록 누적 (다음 요청에 사용)
+    appendBubble('assistant', data.answer || '(응답 없음)');
     appState.chatHistory = data.updated_chat_history || appState.chatHistory;
 
-    // user_profile 업데이트
     if (data.updated_user_profile && Object.keys(data.updated_user_profile).length > 0) {
       $('chat-user-profile').value = JSON.stringify(data.updated_user_profile, null, 2);
     }
@@ -339,8 +335,6 @@ function renderChatResult(data) {
 // ── 채팅 버블 ─────────────────────────────────────────────────────────────────
 function appendBubble(role, text) {
   const container = $('chat-history');
-
-  // 첫 메시지면 빈 상태 메시지 제거
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
 
@@ -386,5 +380,4 @@ function setLoading(btn, loading, label) {
   btn.textContent = label;
 }
 
-// ── 진입점 ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', init);
