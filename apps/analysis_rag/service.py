@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from apps.rag_core.retriever import retrieve_docs
-from apps.rag_core.generator import generate_answer
-from apps.rag_core.schemas import GenerationInput
-from apps.analysis_rag.prompts import ANALYSIS_SYSTEM_INSTRUCTION
+from apps.rag_core.generator import generate_analysis_answer
+from apps.rag_core.schemas import AnalysisGenerationInput
 
 
 def generate_analysis_result(
@@ -17,6 +16,7 @@ def generate_analysis_result(
     if not recommended_hair_styles:
         raise ValueError("recommended_hair_styles는 비어 있을 수 없습니다.")
 
+    retrieval_results = []
     hair_results: list[dict[str, Any]] = []
     total_retrieved_count = 0
     fallback_stages: list[str] = []
@@ -43,43 +43,31 @@ def generate_analysis_result(
             k=3,
         )
 
+        retrieval_results.append(retrieval_result)
         total_retrieved_count += retrieval_result.retrieved_count
         fallback_stages.append(retrieval_result.fallback_stage)
-
-        generation_input = GenerationInput(
-            user_question=(
-                f"{style_name}({style_code}) 스타일이 사용자에게 어울리는 이유를 "
-                "3~5문장으로 설명하세요. 얼굴형과 삼정 비율을 반영하고, "
-                "과장하지 말고 자연스럽게 설명하세요."
-            ),
-            retrieval_result=retrieval_result,
-            system_instruction=ANALYSIS_SYSTEM_INSTRUCTION,
-            user_context={
-                "gender": gender,
-                "face_shape": face_shape,
-                "face_proportion": face_proportion,
-            },
-        )
-
-        reason = generate_answer(generation_input).answer
 
         hair_results.append(
             {
                 "style_name": style_name,
                 "style_code": style_code,
-                "reason": reason,
                 "retrieved_count": retrieval_result.retrieved_count,
                 "fallback_stage": retrieval_result.fallback_stage,
             }
         )
 
-    analysis_summary = (
-        f"{gender} / {face_shape} / {face_proportion} 조건을 기준으로 "
-        "추천된 헤어스타일의 어울림 근거를 분석했습니다."
+    analysis_generation_input = AnalysisGenerationInput(
+        gender=gender,
+        face_shape=face_shape,
+        face_proportion=face_proportion,
+        recommended_styles=hair_results,
+        retrieval_results=retrieval_results,
     )
 
+    analysis_generation_result = generate_analysis_answer(analysis_generation_input)
+
     return {
-        "analysis_summary": analysis_summary,
+        "analysis_summary": analysis_generation_result.answer,
         "hair_recommendations": hair_results,
         "makeup_recommendations": [],
         "cautions": [

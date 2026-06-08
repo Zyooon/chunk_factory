@@ -1,6 +1,7 @@
 # apps/rag_core/generator.py
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -10,7 +11,12 @@ logger = logging.getLogger(__name__)
 
 from apps.rag_core.config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
 from apps.rag_core.prompts import build_generation_prompt
-from apps.rag_core.schemas import GenerationInput, GenerationResult
+from apps.rag_core.schemas import (
+    AnalysisGenerationInput,
+    GenerationInput,
+    GenerationResult,
+    RetrievalResult,
+)
 from apps.rag_core.utils import format_documents_as_context
 
 
@@ -158,10 +164,143 @@ def generate_answer(
     chat_model = get_chat_model()
     response = invoke_with_retry(chat_model, prompt)
 
-    answer = getattr(response, "content", str(response))
+    answer = normalize_model_content(getattr(response, "content", response))
 
     return GenerationResult(
         answer=answer,
         retrieval_result=retrieval_result,
+        model_name=GEMINI_CHAT_MODEL,
+    )
+
+def format_retrieval_results_for_analysis(
+    retrieval_results: list[RetrievalResult],
+) -> str:
+    blocks: list[str] = []
+
+    for result_index, retrieval_result in enumerate(retrieval_results, start=1):
+        if not retrieval_result.documents:
+            blocks.append(
+                "\n".join(
+                    [
+                        f"[검색 결과 {result_index}]",
+                        f"query: {retrieval_result.query}",
+                        "검색된 문서 없음",
+                        f"fallback_stage: {retrieval_result.fallback_stage}",
+                    ]
+                )
+            )
+            continue
+
+        for doc_index, document in enumerate(retrieval_result.documents, start=1):
+            metadata = document.metadata or {}
+            page_content = document.page_content
+
+            blocks.append(
+                "\n".join(
+                    [
+                        f"[검색 결과 {result_index}-{doc_index}]",
+                        f"query: {retrieval_result.query}",
+                        f"fallback_stage: {retrieval_result.fallback_stage}",
+                        f"category: {metadata.get('category', '')}",
+                        f"gender: {metadata.get('gender', '')}",
+                        f"face_shape: {metadata.get('face_shape', '')}",
+                        f"face_proportion: {metadata.get('face_proportion', '')}",
+                        f"style_code: {metadata.get('style_code', '')}",
+                        f"style_name: {metadata.get('style_name', '')}",
+                        "",
+                        page_content,
+                    ]
+                )
+            )
+
+    if not blocks:
+        return "검색된 근거 문서가 없습니다."
+
+    return "\n\n---\n\n".join(blocks)
+
+
+def normalize_model_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        texts: list[str] = []
+
+        for item in content:
+            if isinstance(item, dict) and "text" in item:
+                texts.append(str(item["text"]))
+            else:
+                texts.append(str(item))
+
+        return "\n".join(texts)
+
+    return str(content)
+
+
+def build_analysis_generation_prompt(
+    generation_input: AnalysisGenerationInput,
+) -> str:
+    recommended_style_lines = "\n".join(
+        [
+            f"- {style.get('style_name', '')}"
+            for style in generation_input.recommended_styles
+        ]
+    )
+
+    context = format_retrieval_results_for_analysis(generation_input.retrieval_results)
+
+    return f"""
+당신은 뷰티 디자이너처럼 다정하고 전문적으로 설명하는 RAG 어시스턴트입니다.
+
+반드시 아래 검색 문맥에 있는 정보만 사용하세요.
+검색 문맥 밖의 헤어스타일을 새로 추천하지 마세요.
+추천된 스타일 목록 밖의 스타일을 새로 추가하지 마세요.
+근거가 부족하면 "현재 확보된 데이터 기준으로는"이라고 표현하세요.
+검색된 근거가 없는 스타일은 단정하지 말고, 근거 부족을 명확히 말하세요.
+
+[사용자 진단 정보]
+- 성별: {generation_input.gender}
+- 얼굴형: {generation_input.face_shape}
+- 삼정 비율: {generation_input.face_proportion}
+
+[알고리즘 추천 헤어스타일]
+{recommended_style_lines}
+
+[검색 문맥]
+{context}
+
+[요청]
+위 정보를 바탕으로 사용자의 얼굴형과 삼정 비율에 대한 종합 분석을 작성하세요.
+추천된 헤어스타일들을 각각 짧게 언급하되, 답변은 하나의 자연스러운 종합 설명으로 작성하세요.
+스타일별로 별도 답변을 나누지 마세요.
+최종 답변은 5~8문장 정도로 작성하세요.
+""".strip()
+
+
+def generate_analysis_answer(
+    generation_input: AnalysisGenerationInput,
+) -> GenerationResult:
+    prompt = build_analysis_generation_prompt(generation_input)
+
+    generator_mode = os.getenv("RAG_GENERATOR_MODE", "gemini")
+
+    if generator_mode == "mock":
+        return GenerationResult(
+            answer=(
+                "현재는 개발용 mock 응답입니다. "
+                f"{generation_input.gender} / {generation_input.face_shape} / "
+                f"{generation_input.face_proportion} 조건과 추천 헤어스타일 "
+                "목록을 바탕으로 하나의 종합 분석문이 생성될 예정입니다."
+            ),
+            retrieval_result=RetrievalResult(query="analysis_rag"),
+            model_name="mock",
+        )
+
+    chat_model = get_chat_model()
+    response = invoke_with_retry(chat_model=chat_model, prompt=prompt)
+
+    return GenerationResult(
+        answer=normalize_model_content(response.content),
+        retrieval_result=RetrievalResult(query="analysis_rag"),
         model_name=GEMINI_CHAT_MODEL,
     )

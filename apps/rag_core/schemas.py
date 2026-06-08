@@ -102,6 +102,26 @@ class GenerationInput:
     system_instruction: Optional[str] = None
     user_context: dict[str, Any] = field(default_factory=dict)
 
+@dataclass
+class AnalysisGenerationInput:
+    '''
+    종합 분석용 입력 스키마
+    
+    gender / face_shape / face_proportion
+    → 사용자 진단 정보
+
+    recommended_styles
+    → 알고리즘이 추천한 스타일 3개
+
+    retrieval_results
+    → 각 스타일별 RAG 검색 결과
+    '''
+    gender: str
+    face_shape: str
+    face_proportion: str
+    recommended_styles: list[dict[str, Any]]
+    retrieval_results: list[RetrievalResult]
+
 
 @dataclass
 class GenerationResult:

@@ -9,15 +9,15 @@ def main() -> None:
         recommended_hair_styles=[
             {
                 "style_name": "리프",
+                "style_code": "m-09",
+            },
+            {
+                "style_name": "퀴프",
                 "style_code": "m-10",
             },
             {
-                "style_name": "가일",
-                "style_code": "m-08",
-            },
-            {
                 "style_name": "댄디",
-                "style_code": "m-03",
+                "style_code": "m-08",
             },
         ],
     )
