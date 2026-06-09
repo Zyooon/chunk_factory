@@ -59,17 +59,24 @@ def get_covered_style_codes() -> set[str]:
     """
     ChromaDB에 실제 데이터가 있는 style_code 집합을 반환한다.
 
-    각 문서의 style_groups 메타데이터(쉼표 구분)를 파싱해 수집한다.
+    새 done.json 스키마에서는 스타일 1개가 Document 1개로 저장되고,
+    metadata에도 단수 필드인 style_code가 저장된다.
     """
     vs = get_vectorstore()
     result = vs.get(include=["metadatas"])
     covered: set[str] = set()
-    for meta in result["metadatas"]:
-        groups = meta.get("style_groups", "") or ""
-        for code in groups.split(","):
+
+    for meta in result.get("metadatas", []):
+        if not isinstance(meta, dict):
+            continue
+
+        code = meta.get("style_code")
+        if isinstance(code, str):
             code = code.strip()
-            if code:
-                covered.add(code)
+
+        if code:
+            covered.add(str(code))
+
     return covered
 
 
@@ -296,6 +303,7 @@ def retrieve_many_docs(
         _retrieve_docs_with_vectorstore(q, vectorstore)
         for q in retrieval_queries
     ]
+
 
 def convert_to_chroma_filter(metadata_filter: dict[str, Any]) -> dict[str, Any] | None:
     """
