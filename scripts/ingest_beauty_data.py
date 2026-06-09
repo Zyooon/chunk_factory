@@ -249,8 +249,8 @@ def record_to_json(row: sqlite3.Row) -> dict[str, Any]:
     return record
 
 
-def make_record_uuid(record: dict[str, Any]) -> str:
-    """중복 방지를 위한 stable uuid를 생성한다."""
+def make_record_key(record: dict[str, Any]) -> str:
+    """중복 방지를 위한 stable key를 생성한다."""
     fingerprint = {
         "category": record.get("category", ""),
         "gender": record.get("gender", ""),
@@ -260,9 +260,7 @@ def make_record_uuid(record: dict[str, Any]) -> str:
         "relation": record.get("relation", "recommended"),
     }
     fingerprint_str = json.dumps(fingerprint, ensure_ascii=False, sort_keys=True)
-    digest = hashlib.sha256(fingerprint_str.encode("utf-8")).hexdigest()
-    h = digest[:32]
-    return f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+    return hashlib.sha256(fingerprint_str.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------
@@ -282,12 +280,50 @@ def drop_unused_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    rows = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+    return {row["name"] for row in rows}
+
+
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name = ?
+        """,
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _drop_legacy_record_table_if_needed(conn: sqlite3.Connection) -> None:
+    """
+    이전 버전의 beauty_hair_rag_records는 uuid TEXT PRIMARY KEY 구조였다.
+    새 구조는 id INTEGER PK + record_key UNIQUE 구조이므로, 로컬 테스트 DB에
+    구버전 테이블이 있으면 안전하게 새 테이블로 다시 만들 수 있게 제거한다.
+    """
+    if not _table_exists(conn, TABLE_NAME):
+        return
+
+    columns = _table_columns(conn, TABLE_NAME)
+    if "id" in columns and "record_key" in columns:
+        return
+
+    conn.execute(f'DROP TABLE IF EXISTS "{TABLE_NAME}"')
+    conn.commit()
+    print(f"  [DB] 구버전 {TABLE_NAME} 테이블 제거 완료")
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
     """새 flat RAG record 저장용 단일 테이블을 생성한다."""
+    _drop_legacy_record_table_if_needed(conn)
+
     conn.execute(
         f"""
         CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-            uuid TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_key TEXT NOT NULL UNIQUE,
             category TEXT NOT NULL DEFAULT 'hair',
             gender TEXT NOT NULL DEFAULT '',
             face_shape TEXT NOT NULL DEFAULT '',
@@ -330,6 +366,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 def reset_record_table(conn: sqlite3.Connection) -> None:
     conn.execute(f"DELETE FROM {TABLE_NAME}")
+    conn.execute(f"DELETE FROM sqlite_sequence WHERE name = ?", (TABLE_NAME,))
     conn.commit()
 
 
@@ -354,16 +391,16 @@ def import_records(
         stats["total"] += 1
         try:
             normalized = normalize_record(record)
-            record_uuid = make_record_uuid(normalized)
+            record_key = make_record_key(normalized)
 
             existing = conn.execute(
-                f"SELECT uuid FROM {TABLE_NAME} WHERE uuid = ?",
-                (record_uuid,),
+                f"SELECT id FROM {TABLE_NAME} WHERE record_key = ?",
+                (record_key,),
             ).fetchone()
 
             values = {
                 **normalized,
-                "uuid": record_uuid,
+                "record_key": record_key,
                 "created_at": now,
                 "updated_at": now,
                 "needs_reason_fill": int(normalized["needs_reason_fill"]),
@@ -395,7 +432,7 @@ def import_records(
                         needs_reason_fill = :needs_reason_fill,
                         needs_review = :needs_review,
                         updated_at = :updated_at
-                    WHERE uuid = :uuid
+                    WHERE record_key = :record_key
                     """,
                     values,
                 )
@@ -404,7 +441,7 @@ def import_records(
                 conn.execute(
                     f"""
                     INSERT INTO {TABLE_NAME} (
-                        uuid,
+                        record_key,
                         category,
                         gender,
                         face_shape,
@@ -427,7 +464,7 @@ def import_records(
                         created_at,
                         updated_at
                     ) VALUES (
-                        :uuid,
+                        :record_key,
                         :category,
                         :gender,
                         :face_shape,
@@ -468,7 +505,7 @@ def export_records(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         f"""
         SELECT *
         FROM {TABLE_NAME}
-        ORDER BY category, gender, face_shape, face_proportion, style_code, relation
+        ORDER BY id
         """
     ).fetchall()
 
