@@ -6,7 +6,7 @@
   <title>헤어스타일 RAG 데이터 통계</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
-    /* ── 통계 페이지 전용 ── */
+    /* ── 레이아웃 ── */
     .stats-header {
       background: #1c1c1e;
       color: #f2f2f7;
@@ -14,17 +14,10 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
       gap: 10px;
     }
-
-    .stats-header h1 { font-size: 0.95rem; font-weight: 600; }
-
-    .back-link {
-      color: #64d2ff;
-      font-size: 0.82rem;
-      text-decoration: none;
-    }
+    .stats-header h1 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+    .back-link { color: #64d2ff; font-size: 0.82rem; text-decoration: none; }
     .back-link:hover { text-decoration: underline; }
 
     .stats-main {
@@ -33,63 +26,66 @@
       padding: 0 14px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 16px;
     }
 
     .stats-card {
       background: #fff;
       border-radius: 12px;
-      padding: 18px;
+      padding: 18px 20px;
       box-shadow: 0 1px 4px rgba(0,0,0,0.08);
     }
-
     .stats-card h2 {
-      font-size: 0.9rem;
+      font-size: 0.92rem;
       font-weight: 700;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
+      margin: 0 0 14px;
+      padding-bottom: 10px;
       border-bottom: 1px solid #e5e5ea;
+      color: #1c1c1e;
     }
 
-    .summary-row {
+    /* ── 요약 카드 ── */
+    .summary-grid {
       display: flex;
-      gap: 20px;
+      gap: 12px;
       flex-wrap: wrap;
-      margin-bottom: 12px;
     }
-
-    .summary-item {
+    .sum-item {
+      flex: 1;
+      min-width: 120px;
+      background: #f9f9fb;
+      border: 1px solid #e5e5ea;
+      border-radius: 10px;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
     }
-
-    .summary-value {
-      font-size: 1.4rem;
+    .sum-value {
+      font-size: 1.6rem;
       font-weight: 700;
-      color: #007aff;
+      line-height: 1;
     }
-
-    .summary-label {
+    .sum-label {
       font-size: 0.72rem;
       color: #636366;
+      margin-top: 2px;
     }
+    .sum-item.s-total  .sum-value { color: #007aff; }
+    .sum-item.s-rec    .sum-value { color: #34c759; }
+    .sum-item.s-notrec .sum-value { color: #ff3b30; }
+    .sum-item.s-review .sum-value { color: #ff9500; }
+    .sum-item.s-reason .sum-value { color: #b8860b; }
 
-    /* 필터 */
+    /* ── 필터 행 ── */
     .filter-row {
       display: flex;
       gap: 8px;
       align-items: center;
       flex-wrap: wrap;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
-
-    .filter-row label {
-      font-size: 0.78rem;
-      font-weight: 600;
-      color: #636366;
-    }
-
+    .filter-row label { font-size: 0.78rem; font-weight: 600; color: #636366; }
     .filter-row select {
       padding: 5px 10px;
       border: 1px solid #d1d1d6;
@@ -99,28 +95,9 @@
       cursor: pointer;
     }
 
-    /* 현재 조건 라벨 */
-    .condition-label {
-      font-size: 0.78rem;
-      color: #636366;
-      background: #f2f2f7;
-      border-radius: 6px;
-      padding: 5px 10px;
-      margin-bottom: 10px;
-      font-weight: 500;
-    }
-
-    /* 테이블 */
-    .stats-table-wrap {
-      overflow-x: auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.82rem;
-    }
-
+    /* ── 테이블 ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
     thead th {
       background: #f2f2f7;
       padding: 8px 12px;
@@ -131,287 +108,65 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
       white-space: nowrap;
-      cursor: pointer;
-      user-select: none;
     }
-
-    thead th:hover { background: #e5e5ea; }
-    thead th.no-sort { cursor: default; }
-    thead th.no-sort:hover { background: #f2f2f7; }
-
-    thead th.sort-asc::after  { content: " ▲"; color: #007aff; }
-    thead th.sort-desc::after { content: " ▼"; color: #007aff; }
-
-    tbody tr:nth-child(even) { background: #f9f9fb; }
-    tbody tr:hover { background: #f0f4ff; }
-    tbody tr.selected-row { background: #dbeeff !important; }
-    tbody tr.clickable { cursor: pointer; }
-
     tbody td {
       padding: 7px 12px;
       color: #1c1c1e;
-      white-space: nowrap;
       border-bottom: 1px solid #f2f2f7;
-    }
-
-    .gender-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 0.72rem;
-      font-weight: 600;
-    }
-
-    .gender-badge.male   { background: #e3f0ff; color: #0071e3; }
-    .gender-badge.female { background: #ffeaf2; color: #c0392b; }
-
-    .code-cell {
-      font-family: "SF Mono", "Menlo", monospace;
-      font-size: 0.75rem;
-      color: #636366;
-    }
-
-    .bar-cell { min-width: 120px; }
-
-    .bar-wrap {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .bar-bg {
-      flex: 1;
-      height: 6px;
-      background: #e5e5ea;
-      border-radius: 3px;
-      overflow: hidden;
-    }
-
-    .bar-fill { height: 100%; border-radius: 3px; }
-    .bar-fill.rec  { background: #34c759; }
-    .bar-fill.wrst { background: #ff3b30; }
-
-    .bar-num {
-      font-size: 0.75rem;
-      font-weight: 600;
-      min-width: 24px;
-      text-align: right;
-    }
-
-    .bar-num.rec  { color: #34c759; }
-    .bar-num.wrst { color: #ff3b30; }
-
-    .no-code { color: #aeaeb2; font-style: italic; }
-    tbody tr.no-data-row td { color: #aeaeb2; }
-
-    #loading-msg { color: #636366; font-size: 0.85rem; padding: 20px; }
-    #stats-error { color: #c0392b; padding: 10px; }
-
-    /* 스타일 상세 패널 */
-    .detail-hint {
-      font-size: 0.75rem;
-      color: #8e8e93;
-      margin-bottom: 10px;
-      line-height: 1.5;
-    }
-
-    .detail-close-btn {
-      float: right;
-      background: none;
-      border: 1px solid #d1d1d6;
-      border-radius: 6px;
-      padding: 3px 10px;
-      font-size: 0.75rem;
-      color: #636366;
-      cursor: pointer;
-    }
-    .detail-close-btn:hover { background: #f2f2f7; }
-
-    .rec-count  { color: #34c759; font-weight: 600; }
-    .wrst-count { color: #ff3b30; font-weight: 600; }
-
-    /* 커버리지 요약 카드 */
-    .coverage-summary {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
-
-    .cov-card {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      background: #f9f9fb;
-      border: 1px solid #e5e5ea;
-      border-radius: 10px;
-      padding: 10px 16px;
-      min-width: 110px;
-    }
-
-    .cov-value {
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: #1c1c1e;
-    }
-
-    .cov-label {
-      font-size: 0.7rem;
-      color: #636366;
-    }
-
-    .cov-card.danger  .cov-value { color: #ff3b30; }
-    .cov-card.warning .cov-value { color: #ff9500; }
-    .cov-card.yellow  .cov-value { color: #b8860b; }
-    .cov-card.good    .cov-value { color: #34c759; }
-
-    /* 상태 배지 */
-    .status-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 0.7rem;
-      font-weight: 600;
       white-space: nowrap;
     }
+    tbody tr:nth-child(even) { background: #f9f9fb; }
+    tbody tr:hover { background: #f0f4ff; }
+    tbody tr.row-unreg td { color: #aeaeb2; }
 
-    .status-badge.s-none         { background: #3a3a3c; color: #fff; }
-    .status-badge.s-very-poor    { background: #ff3b30; color: #fff; }
-    .status-badge.s-poor         { background: #ff9500; color: #fff; }
-    .status-badge.s-biased       { background: #ffd60a; color: #3a3a3c; }
-    .status-badge.s-normal       { background: #34c759; color: #fff; }
-
-    /* 체크박스 라벨 (stats 전용 — style.css의 .checkbox-label 재사용 가능) */
-    .coverage-filter-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-
-    .coverage-filter-row label {
-      font-size: 0.82rem;
-      color: #1c1c1e;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    /* 매트릭스 섹션 */
-    .matrix-pair {
-      display: flex;
-      gap: 24px;
-      flex-wrap: wrap;
-    }
-
-    .matrix-block { flex: 1; min-width: 280px; }
-
-    .matrix-gender-title {
-      font-size: 0.82rem;
-      font-weight: 700;
-      margin-bottom: 8px;
-      padding: 3px 10px;
-      border-radius: 6px;
+    /* ── 뱃지 ── */
+    .badge {
       display: inline-block;
-    }
-    .matrix-gender-title.male   { background: #e3f0ff; color: #0071e3; }
-    .matrix-gender-title.female { background: #ffeaf2; color: #c0392b; }
-
-    .matrix-grid {
-      display: grid;
-      gap: 3px;
-    }
-
-    .matrix-cell {
-      padding: 6px 4px;
-      border-radius: 5px;
-      text-align: center;
-      font-size: 0.72rem;
-      line-height: 1.3;
-    }
-
-    .matrix-cell.m-header {
-      background: #f2f2f7;
-      font-weight: 600;
-      color: #636366;
-      font-size: 0.68rem;
-    }
-
-    .matrix-cell.m-row-label {
-      background: #f9f9fb;
-      font-weight: 600;
-      font-size: 0.72rem;
-      color: #3a3a3c;
-      text-align: left;
-      padding-left: 8px;
-      display: flex;
-      align-items: center;
-    }
-
-    .matrix-cell.m-none      { background: #ff3b30; color: #fff; font-weight: 700; }
-    .matrix-cell.m-very-poor { background: #ff9500; color: #fff; font-weight: 600; }
-    .matrix-cell.m-poor      { background: #ffd60a; color: #3a3a3c; font-weight: 600; }
-    .matrix-cell.m-biased    { background: #5e5ce6; color: #fff; }
-    .matrix-cell.m-normal    { background: #34c759; color: #fff; }
-
-    .matrix-legend {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 14px;
-    }
-
-    .matrix-legend-item {
-      padding: 3px 10px;
+      padding: 2px 8px;
       border-radius: 12px;
       font-size: 0.72rem;
       font-weight: 600;
     }
+    .badge.male   { background: #e3f0ff; color: #0071e3; }
+    .badge.female { background: #ffeaf2; color: #c0392b; }
+    .badge.unreg  { background: #f2f2f7; color: #aeaeb2; font-style: italic; }
 
-    .matrix-missing-list {
-      margin-top: 12px;
-      font-size: 0.8rem;
+    .code-cell { font-family: "SF Mono", "Menlo", monospace; font-size: 0.75rem; color: #636366; }
+
+    .num-rec    { color: #34c759; font-weight: 600; }
+    .num-notrec { color: #ff3b30; font-weight: 600; }
+    .num-review { color: #ff9500; font-weight: 600; }
+    .num-reason { color: #b8860b; font-weight: 600; }
+
+    /* ── 부족 데이터 목록 ── */
+    .missing-section { margin-bottom: 18px; }
+    .missing-section h3 {
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin: 0 0 8px;
+      color: #3a3a3c;
     }
-
-    .matrix-missing-list ul {
-      list-style: none;
+    .tag-list {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      margin-top: 6px;
     }
-
-    .matrix-missing-list li {
-      background: #fff0ef;
-      border: 1px solid #ffb3ae;
-      color: #c0392b;
+    .tag {
+      padding: 4px 10px;
       border-radius: 8px;
-      padding: 3px 10px;
       font-size: 0.75rem;
+      font-weight: 500;
     }
+    .tag.missing     { background: #fff0ef; border: 1px solid #ffb3ae; color: #c0392b; }
+    .tag.insufficient{ background: #fff8ec; border: 1px solid #ffd094; color: #7c5600; }
+    .tag.style-miss  { background: #f0f0ff; border: 1px solid #c5c0ff; color: #4b44c5; }
+    .tag-count { font-weight: 700; margin-right: 3px; }
 
-    .matrix-cell.clickable { cursor: pointer; }
-    .matrix-cell.clickable:hover { opacity: 0.75; }
-    .matrix-cell.matrix-cell-selected {
-      outline: 2px solid #007aff;
-      outline-offset: 2px;
-      z-index: 1;
-      position: relative;
-    }
+    .no-data-msg { color: #aeaeb2; font-size: 0.82rem; padding: 8px 0; }
 
-    .matrix-detail-cols {
-      display: flex;
-      gap: 20px;
-      flex-wrap: wrap;
-      margin-top: 12px;
-    }
-    .matrix-detail-col { flex: 1; min-width: 200px; }
-    .matrix-detail-col h4 {
-      font-size: 0.82rem;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
+    #loading-msg { color: #636366; font-size: 0.85rem; padding: 24px 0; text-align: center; }
+    #stats-error { color: #c0392b; padding: 12px; font-size: 0.85rem; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
@@ -423,214 +178,122 @@
 
   <div class="stats-main">
 
-    <!-- ① 데이터 요약 -->
-    <div class="stats-card">
-      <h2>데이터 요약</h2>
-      <div class="summary-row">
-        <div class="summary-item">
-          <span class="summary-value" id="sum-rows">-</span>
-          <span class="summary-label">전체 매핑 행 수</span>
+    <div id="loading-msg">데이터 불러오는 중...</div>
+    <div id="stats-error" class="hidden"></div>
+
+    <!-- ① 전체 요약 -->
+    <div class="stats-card hidden" id="card-summary">
+      <h2>전체 요약</h2>
+      <div class="summary-grid">
+        <div class="sum-item s-total">
+          <span class="sum-value" id="sum-total">-</span>
+          <span class="sum-label">전체 데이터</span>
         </div>
-        <div class="summary-item">
-          <span class="summary-value" id="sum-styles">-</span>
-          <span class="summary-label">전체 스타일 수</span>
+        <div class="sum-item s-rec">
+          <span class="sum-value" id="sum-rec">-</span>
+          <span class="sum-label">추천 데이터</span>
+        </div>
+        <div class="sum-item s-notrec">
+          <span class="sum-value" id="sum-notrec">-</span>
+          <span class="sum-label">비추천 데이터</span>
+        </div>
+        <div class="sum-item s-review">
+          <span class="sum-value" id="sum-review">-</span>
+          <span class="sum-label">검토 필요</span>
+        </div>
+        <div class="sum-item s-reason">
+          <span class="sum-value" id="sum-reason">-</span>
+          <span class="sum-label">사유 보강 필요</span>
         </div>
       </div>
-      <p style="font-size:0.72rem;color:#aeaeb2;">
-        ※ <span style="color:#aeaeb2;">(매핑 없음)</span> 표시 스타일은 hair_styles에 등록됐으나 condition_style_mapping 데이터가 없는 항목입니다.
-      </p>
     </div>
 
-    <!-- ② 스타일별 추천 / 비추천 등장 횟수 -->
-    <div class="stats-card">
-      <h2>스타일별 추천 / 비추천 등장 횟수</h2>
-
-      <!-- 필터 -->
+    <!-- ② 조건별 데이터 개수 -->
+    <div class="stats-card hidden" id="card-condition">
+      <h2>조건별 데이터 개수</h2>
       <div class="filter-row">
-        <label for="gender-filter">성별:</label>
-        <select id="gender-filter">
+        <label for="cond-gender">성별:</label>
+        <select id="cond-gender">
           <option value="all">전체</option>
-          <option value="남성">남성</option>
           <option value="여성">여성</option>
+          <option value="남성">남성</option>
         </select>
-
-        <label for="face-shape-filter">얼굴형:</label>
-        <select id="face-shape-filter">
+        <label for="cond-shape">얼굴형:</label>
+        <select id="cond-shape">
           <option value="all">전체</option>
         </select>
-
-        <label for="face-proportion-filter">삼정 비율:</label>
-        <select id="face-proportion-filter">
+        <label for="cond-prop">삼정 비율:</label>
+        <select id="cond-prop">
           <option value="all">전체</option>
         </select>
-
-        <span style="font-size:0.72rem;color:#aeaeb2;">행 클릭 → 조건별 상세</span>
       </div>
-
-      <!-- 현재 조건 표시 -->
-      <div class="condition-label" id="condition-label">현재 조건: 전체 성별 / 얼굴형 전체 / 삼정 전체</div>
-
-      <div id="loading-msg">데이터 불러오는 중...</div>
-      <div id="stats-error" class="hidden"></div>
-
-      <div class="stats-table-wrap hidden" id="table-wrap">
-        <table id="stats-table">
+      <div class="table-wrap">
+        <table>
           <thead>
             <tr>
-              <th data-col="gender">성별</th>
-              <th data-col="style_name">스타일명</th>
-              <th data-col="style_code">스타일 코드</th>
-              <th data-col="recommended_count">추천 등장</th>
-              <th data-col="worst_count">비추천 등장</th>
-              <th data-col="total_count">전체 등장</th>
+              <th>성별</th>
+              <th>얼굴형</th>
+              <th>삼정 비율</th>
+              <th>전체</th>
+              <th>추천</th>
+              <th>비추천</th>
+              <th>검토 필요</th>
+              <th>사유 보강</th>
             </tr>
           </thead>
-          <tbody id="stats-tbody"></tbody>
+          <tbody id="cond-tbody"></tbody>
         </table>
       </div>
     </div>
 
-    <!-- ③ 스타일별 조건 커버리지 상세 (선택 시 표시) -->
-    <div id="style-detail-panel" class="stats-card hidden">
-      <h2 id="detail-title">상세</h2>
-      <button class="detail-close-btn" id="detail-close-btn">닫기 ✕</button>
-      <div class="condition-label" id="detail-gender-label"></div>
-      <p class="detail-hint">이 상세는 선택한 스타일이 어떤 얼굴형·삼정 조건에서 추천/비추천으로 등장했는지 보여줍니다. 얼굴형·삼정 필터와 무관하게 전체 분포를 표시합니다.</p>
-      <div class="stats-table-wrap">
-        <table id="detail-table">
+    <!-- ③ 스타일별 등록 현황 -->
+    <div class="stats-card hidden" id="card-style">
+      <h2>스타일별 등록 현황</h2>
+      <div class="filter-row">
+        <label for="style-gender">성별:</label>
+        <select id="style-gender">
+          <option value="all">전체</option>
+          <option value="여성">여성</option>
+          <option value="남성">남성</option>
+        </select>
+        <span style="font-size:0.75rem;color:#aeaeb2;margin-left:4px;">회색 행 = 마스터에 있으나 DB 미등록 스타일</span>
+      </div>
+      <div class="table-wrap">
+        <table>
           <thead>
             <tr>
-              <th class="no-sort">성별</th>
-              <th class="no-sort">얼굴형</th>
-              <th class="no-sort">삼정 비율</th>
-              <th class="no-sort">추천 등장</th>
-              <th class="no-sort">비추천 등장</th>
-              <th class="no-sort">전체 등장</th>
+              <th>성별</th>
+              <th>코드</th>
+              <th>스타일명</th>
+              <th>전체</th>
+              <th>추천</th>
+              <th>비추천</th>
+              <th>검토 필요</th>
+              <th>사유 보강</th>
             </tr>
           </thead>
-          <tbody id="detail-tbody"></tbody>
+          <tbody id="style-tbody"></tbody>
         </table>
       </div>
     </div>
 
-    <!-- ④⑤ 얼굴형 · 삼정 조합별 데이터 현황 -->
-    <div class="stats-card hidden" id="coverage-card">
-      <h2>얼굴형 · 삼정 조합별 데이터 현황</h2>
+    <!-- ④ 부족 데이터 목록 -->
+    <div class="stats-card hidden" id="card-missing">
+      <h2>부족 데이터 목록</h2>
 
-      <!-- 요약 카드 4개 -->
-      <div class="coverage-summary">
-        <div class="cov-card">
-          <span class="cov-value" id="cov-total">-</span>
-          <span class="cov-label">전체 조합 수</span>
-        </div>
-        <div class="cov-card danger">
-          <span class="cov-value" id="cov-no-data">-</span>
-          <span class="cov-label">데이터 없음</span>
-        </div>
-        <div class="cov-card warning">
-          <span class="cov-value" id="cov-insufficient">-</span>
-          <span class="cov-label">부족 / 매우 부족</span>
-        </div>
-        <div class="cov-card yellow">
-          <span class="cov-value" id="cov-biased">-</span>
-          <span class="cov-label">편향 조합</span>
-        </div>
+      <div class="missing-section">
+        <h3>미등록 조합 <span id="cnt-missing-cond" style="color:#ff3b30;"></span></h3>
+        <div class="tag-list" id="list-missing-cond"></div>
       </div>
 
-      <!-- 부족 조합 필터 체크박스 -->
-      <div class="coverage-filter-row">
-        <label>
-          <input type="checkbox" id="only-insufficient-cb">
-          부족한 조합만 보기
-        </label>
+      <div class="missing-section">
+        <h3>부족 조합 (1~4건) <span id="cnt-insuf-cond" style="color:#ff9500;"></span></h3>
+        <div class="tag-list" id="list-insuf-cond"></div>
       </div>
 
-      <!-- 커버리지 테이블 -->
-      <div class="stats-table-wrap">
-        <table id="coverage-table">
-          <thead>
-            <tr>
-              <th class="no-sort">성별</th>
-              <th class="no-sort">얼굴형</th>
-              <th class="no-sort">삼정 비율</th>
-              <th class="no-sort">문서 수</th>
-              <th class="no-sort">추천 등장</th>
-              <th class="no-sort">비추천 등장</th>
-              <th class="no-sort">추천 스타일 수</th>
-              <th class="no-sort">비추천 스타일 수</th>
-              <th class="no-sort">부족 상태</th>
-            </tr>
-          </thead>
-          <tbody id="coverage-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ⑥ 수집 현황 매트릭스 -->
-    <div class="stats-card hidden" id="matrix-card">
-      <h2>수집 현황 매트릭스
-        <span style="font-size:0.78rem;font-weight:400;color:#636366;">
-          — 얼굴형 5 × 삼정 4 × 성별 2 = 전체 40조합 기준
-        </span>
-      </h2>
-
-      <div id="matrix-summary" style="margin-bottom:12px;font-size:0.85rem;"></div>
-
-      <div class="matrix-legend">
-        <span class="matrix-legend-item m-none">없음 (0건)</span>
-        <span class="matrix-legend-item m-very-poor">매우 부족 (1–2건)</span>
-        <span class="matrix-legend-item m-poor">부족 (3–5건)</span>
-        <span class="matrix-legend-item m-biased">편향</span>
-        <span class="matrix-legend-item m-normal">보통</span>
-      </div>
-
-      <div class="matrix-pair" id="matrix-tables"></div>
-
-      <div class="matrix-missing-list hidden" id="missing-list-wrap">
-        <strong>데이터 없는 조합 목록</strong>
-        <ul id="missing-list"></ul>
-      </div>
-    </div>
-
-    <!-- ⑦ 매트릭스 셀 클릭 상세 패널 -->
-    <div class="stats-card hidden" id="matrix-detail-panel">
-      <h2 id="matrix-detail-title">조합 상세</h2>
-      <button class="detail-close-btn" id="matrix-detail-close-btn">닫기 ✕</button>
-      <div class="condition-label" id="matrix-detail-info"></div>
-      <p class="detail-hint">해당 조합에서 등장한 추천·비추천 스타일 목록입니다.</p>
-
-      <div class="matrix-detail-cols">
-        <div class="matrix-detail-col">
-          <h4 style="color:#34c759;">추천 스타일</h4>
-          <div class="stats-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th class="no-sort">스타일명</th>
-                  <th class="no-sort">코드</th>
-                  <th class="no-sort">등장 횟수</th>
-                </tr>
-              </thead>
-              <tbody id="matrix-detail-rec-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="matrix-detail-col">
-          <h4 style="color:#ff3b30;">비추천 스타일</h4>
-          <div class="stats-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th class="no-sort">스타일명</th>
-                  <th class="no-sort">코드</th>
-                  <th class="no-sort">등장 횟수</th>
-                </tr>
-              </thead>
-              <tbody id="matrix-detail-worst-tbody"></tbody>
-            </table>
-          </div>
-        </div>
+      <div class="missing-section">
+        <h3>미등록 스타일 <span id="cnt-missing-style" style="color:#4b44c5;"></span></h3>
+        <div class="tag-list" id="list-missing-style"></div>
       </div>
     </div>
 

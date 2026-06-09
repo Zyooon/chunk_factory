@@ -1,91 +1,9 @@
 'use strict';
 
-// ── hair_style_mapping.md 내장 데이터 ─────────────────────────────────────────
-// 키: 성별 → 얼굴형 → 삼정(select value 기준) → { rank1, rank2 }
-const HAIR_STYLE_MAPPING = {
-  '여성': {
-    '계란형': {
-      '균형':       { rank1: ['프리다', '코튼'],                        rank2: ['원랭스', '페미닌', '바그'] },
-      '상안부_긴형': { rank1: ['울프', '버드', '다이앤'],               rank2: ['히메'] },
-      '중안부_긴형': { rank1: ['윈드', '빌드'],                         rank2: [] },
-      '하안부_긴형': { rank1: ['허그'],                                 rank2: ['페미닌'] },
-    },
-    '둥근형': {
-      '균형':       { rank1: ['페미닌'],                               rank2: ['레이어드'] },
-      '상안부_긴형': { rank1: ['태슬'],                                 rank2: ['구름'] },
-      '중안부_긴형': { rank1: ['빌드', '샌드', '레아', '엘리자벳'],    rank2: ['발롱'] },
-      '하안부_긴형': { rank1: ['레이어드'],                            rank2: ['빌드', '샌드'] },
-    },
-    '각진형': {
-      '균형':       { rank1: ['보브', '레이어드'],                     rank2: ['프리다', '레인', '코튼'] },
-      '상안부_긴형': { rank1: ['샤기', '다이앤'],                      rank2: ['구름', '프릴'] },
-      '중안부_긴형': { rank1: ['빌드', '샌드'],                        rank2: ['엘리자벳', '벌룬', '발롱', '젤리', '러플', '윈드'] },
-      '하안부_긴형': { rank1: ['허그', '허쉬'],                        rank2: [] },
-    },
-    '장방형': {
-      '균형':       { rank1: ['보브', '원랭스', '레이어드', '레인', '그레이스', '바그'], rank2: ['코튼'] },
-      '상안부_긴형': { rank1: ['샤기', '구름', '프릴'],                rank2: [] },
-      '중안부_긴형': { rank1: ['벌룬', '발롱', '젤리', '러플', '윈드'], rank2: ['빌드', '엘리자벳'] },
-      '하안부_긴형': { rank1: ['허쉬', '발롱'],                        rank2: ['구름'] },
-    },
-    '역삼각형': {
-      '균형':       { rank1: ['원랭스', '페미닌'],                     rank2: ['바그', '태슬'] },
-      '상안부_긴형': { rank1: ['히메'],                                rank2: ['태슬'] },
-      '중안부_긴형': { rank1: ['레아', '벌룬'],                        rank2: ['러플', '윈드'] },
-      '하안부_긴형': { rank1: ['태슬', '러플'],                        rank2: ['레아', '발롱'] },
-    },
-    '긴얼굴형': {
-      '균형':       { rank1: ['구름', '발롱'],                         rank2: ['빌드', '벌룬'] },
-      '상안부_긴형': { rank1: ['다이앤', '프릴'],                      rank2: ['샤기', '태슬'] },
-      '중안부_긴형': { rank1: ['벌룬', '구름'],                        rank2: ['젤리', '러플'] },
-      '하안부_긴형': { rank1: ['허쉬', '발롱'],                        rank2: ['레이어드', '그런지'] },
-    },
-  },
-  '남성': {
-    '계란형': {
-      '균형':       { rank1: ['아이비리그', '댄디'],                   rank2: ['하이앤타이트', '허밍'] },
-      '상안부_긴형': { rank1: ['드롭', '슬릭', '울프', '시스루'],      rank2: [] },
-      '중안부_긴형': { rank1: ['애즈'],                                rank2: [] },
-      '하안부_긴형': { rank1: ['울프', '애즈', '포마드'],              rank2: [] },
-    },
-    '둥근형': {
-      '균형':       { rank1: ['버즈'],                                 rank2: ['하이앤타이트', '아이비리그'] },
-      '상안부_긴형': { rank1: ['크롭', '퀴프'],                        rank2: ['슬릭', '울프', '시스루'] },
-      '중안부_긴형': { rank1: ['퀴프'],                                rank2: ['애즈'] },
-      '하안부_긴형': { rank1: ['포마드'],                              rank2: ['울프', '애즈'] },
-    },
-    '각진형': {
-      '균형':       { rank1: ['하이앤타이트'],                         rank2: ['아이비리그', '허밍', '베이비'] },
-      '상안부_긴형': { rank1: ['드롭', '쉐도우'],                      rank2: ['크롭', '퀴프', '울프', '베이비', '히피'] },
-      '중안부_긴형': { rank1: ['리프', '애즈'],                        rank2: ['퀴프', '히피', '그런지'] },
-      '하안부_긴형': { rank1: ['포마드', '그런지'],                    rank2: ['울프', '애즈'] },
-    },
-    '장방형': {
-      '균형':       { rank1: ['허밍', '베이비'],                       rank2: ['댄디'] },
-      '상안부_긴형': { rank1: ['쉐도우', '베이비', '히피'],            rank2: ['드롭', '울프', '시스루'] },
-      '중안부_긴형': { rank1: ['리프', '히피', '그런지'],              rank2: [] },
-      '하안부_긴형': { rank1: ['그런지'],                              rank2: ['울프'] },
-    },
-    '역삼각형': {
-      '균형':       { rank1: ['히피', '퀴프'],                         rank2: ['베이비', '슬릭'] },
-      '상안부_긴형': { rank1: ['크롭', '슬릭'],                        rank2: ['울프', '쉐도우'] },
-      '중안부_긴형': { rank1: ['히피', '애즈'],                        rank2: ['퀴프', '그런지'] },
-      '하안부_긴형': { rank1: ['울프', '포마드'],                      rank2: ['애즈', '히피'] },
-    },
-    '긴얼굴형': {
-      '균형':       { rank1: ['허밍', '댄디'],                         rank2: ['아이비리그', '시스루'] },
-      '상안부_긴형': { rank1: ['크롭', '베이비'],                      rank2: ['드롭', '쉐도우'] },
-      '중안부_긴형': { rank1: ['퀴프', '히피'],                        rank2: ['리프', '애즈'] },
-      '하안부_긴형': { rank1: ['울프', '그런지'],                      rank2: ['포마드', '애즈'] },
-    },
-  },
-};
-
 // ── 앱 상태 ──────────────────────────────────────────────────────────────────
 const appState = {
   chatHistory: [],
-  styleCodeMap: {},     // style_name → style_code (서버에서 1회 로드)
-  ragCoverage: new Set(), // ChromaDB 데이터가 있는 style_code 집합
+  ragCoverage: new Set(),   // ChromaDB에 데이터가 있는 style_code 집합
 };
 
 // ── DOM 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -94,7 +12,7 @@ const $ = (id) => document.getElementById(id);
 // ── 초기화 ───────────────────────────────────────────────────────────────────
 async function init() {
   setGender('남성');
-  await Promise.all([loadStyleCodeMap(), loadRagCoverage()]);
+  await loadRagCoverage();
 
   $('btn-sample-male').addEventListener('click', fillSampleMale);
   $('btn-sample-female').addEventListener('click', fillSampleFemale);
@@ -102,15 +20,6 @@ async function init() {
   $('btn-analyze').addEventListener('click', handleAnalyze);
   $('btn-chat').addEventListener('click', handleChat);
   $('btn-reset-chat').addEventListener('click', resetChat);
-}
-
-async function loadStyleCodeMap() {
-  try {
-    const res = await fetch('/api/hair-style-map');
-    if (res.ok) appState.styleCodeMap = await res.json();
-  } catch {
-    appState.styleCodeMap = {};
-  }
 }
 
 async function loadRagCoverage() {
@@ -130,7 +39,7 @@ function fillSampleMale() {
   setGender('남성');
   $('face-shape').value = '둥근형';
   $('face-proportion').value = '균형';
-  handleLoadOptions(); // 조건 채우고 자동 호출
+  handleLoadOptions();
 }
 
 function fillSampleFemale() {
@@ -151,10 +60,10 @@ function getGender() {
   return r ? r.value : '';
 }
 
-// ── 매핑 기반 추천 헤어 불러오기 (hair_style_mapping.md 기준) ─────────────────
+// ── DB 기반 추천 헤어 불러오기 ─────────────────────────────────────────────────
 async function handleLoadOptions() {
-  const gender       = getGender();
-  const face_shape   = $('face-shape').value;
+  const gender          = getGender();
+  const face_shape      = $('face-shape').value;
   const face_proportion = $('face-proportion').value;
 
   hideError('options-error');
@@ -165,23 +74,29 @@ async function handleLoadOptions() {
   $('btn-analyze').disabled = true;
 
   try {
-    const mapping = HAIR_STYLE_MAPPING[gender]?.[face_shape]?.[face_proportion];
+    const res = await fetch('/api/hair-options', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ gender, face_shape, face_proportion }),
+    });
+    const data = await res.json();
 
-    if (!mapping || (mapping.rank1.length === 0 && mapping.rank2.length === 0)) {
-      showError('options-error', '해당 조건의 매핑 데이터가 없습니다. 다른 조건을 선택해주세요.');
+    if (!res.ok || data.error) {
+      showError('options-error', data.error || `서버 오류 (HTTP ${res.status})`);
       $('hair-options-area').classList.add('hidden');
       return;
     }
 
-    const toStyleObj = (name) => ({
-      style_name: name,
-      style_code:  appState.styleCodeMap[name] ?? null,
-    });
+    const recommended = data.recommended_styles || [];
+    const worst       = data.worst_styles       || [];
 
-    renderHairOptions({
-      rank1: mapping.rank1.map(toStyleObj),
-      rank2: mapping.rank2.map(toStyleObj),
-    });
+    if (recommended.length === 0 && worst.length === 0) {
+      showError('options-error', '해당 조건의 데이터가 없습니다. 다른 조건을 선택해주세요.');
+      $('hair-options-area').classList.add('hidden');
+      return;
+    }
+
+    renderHairOptions({ recommended, worst });
     $('hair-options-area').classList.remove('hidden');
 
   } catch (e) {
@@ -191,48 +106,54 @@ async function handleLoadOptions() {
   }
 }
 
-function renderHairOptions({ rank1, rank2 }) {
+function renderHairOptions({ recommended, worst }) {
   const container = $('style-list');
   container.innerHTML = '';
   setStyleCount(0);
   $('btn-analyze').disabled = true;
 
-  const addGroup = (styles, rankLabel) => {
-    if (styles.length === 0) return;
-
-    const divider = document.createElement('div');
-    divider.className = 'style-rank-label';
-    divider.textContent = rankLabel;
-    container.appendChild(divider);
-
-    styles.forEach(({ style_name, style_code }) => {
+  if (recommended.length === 0) {
+    const msg = document.createElement('div');
+    msg.style.cssText = 'color:#aeaeb2;font-size:0.82rem;padding:8px 0;';
+    msg.textContent = '추천 스타일 없음';
+    container.appendChild(msg);
+  } else {
+    recommended.forEach(({ style_name, style_code }) => {
       const hasData = style_code && appState.ragCoverage.has(style_code);
 
       const label = document.createElement('label');
       const cb    = document.createElement('input');
-      cb.type          = 'checkbox';
-      cb.value         = style_code || style_name;
-      cb.dataset.name  = style_name;
-      cb.dataset.code  = style_code || '';
+      cb.type         = 'checkbox';
+      cb.value        = style_code || style_name;
+      cb.dataset.name = style_name;
+      cb.dataset.code = style_code || '';
       cb.addEventListener('change', onStyleCheck);
 
       const span = document.createElement('span');
       span.textContent = style_name;
       if (style_code) span.title = `코드: ${style_code}`;
-      if (!hasData) span.classList.add('no-rag-data');
+      if (!hasData)   span.classList.add('no-rag-data');
 
       label.appendChild(cb);
       label.appendChild(span);
       container.appendChild(label);
     });
-  };
+  }
 
-  const hasRank2 = rank2.length > 0;
-  addGroup(rank1, hasRank2 ? '★ 1순위' : '추천');
-  addGroup(rank2, '2순위+');
-
-  // 비추천은 MD에 없으므로 숨김
-  $('worst-area').classList.add('hidden');
+  // 비추천 스타일
+  if (worst.length > 0) {
+    $('worst-area').classList.remove('hidden');
+    const worstList = $('worst-list');
+    worstList.innerHTML = '';
+    worst.forEach(({ style_name, style_code }) => {
+      const tag = document.createElement('span');
+      tag.className   = 'worst-tag';
+      tag.textContent = style_code ? `${style_name} (${style_code})` : style_name;
+      worstList.appendChild(tag);
+    });
+  } else {
+    $('worst-area').classList.add('hidden');
+  }
 }
 
 function onStyleCheck() {
@@ -262,9 +183,9 @@ function getCheckedStyles() {
 
 // ── 분석 요청 ─────────────────────────────────────────────────────────────────
 async function handleAnalyze() {
-  const gender = getGender();
-  const face_shape = $('face-shape').value;
-  const face_proportion = $('face-proportion').value;
+  const gender                  = getGender();
+  const face_shape              = $('face-shape').value;
+  const face_proportion         = $('face-proportion').value;
   const recommended_hair_styles = getCheckedStyles();
 
   hideError('analysis-error');
@@ -273,7 +194,7 @@ async function handleAnalyze() {
   if (recommended_hair_styles.length < 1 || recommended_hair_styles.length > 3) {
     return showError('analysis-error', '헤어스타일을 1~3개 선택해주세요.');
   }
-  // style_code 없는 스타일이 있으면 경고 (분석 가능하면 진행)
+
   const noCode = recommended_hair_styles.filter((s) => !s.style_code);
   if (noCode.length > 0) {
     const names = noCode.map((s) => s.style_name).join(', ');
@@ -289,17 +210,15 @@ async function handleAnalyze() {
   const startTime = Date.now();
   elapsedEl.textContent = '';
   const timerInterval = setInterval(() => {
-    const s = ((Date.now() - startTime) / 1000).toFixed(1);
-    elapsedEl.textContent = `(${s}초)`;
+    elapsedEl.textContent = `(${((Date.now() - startTime) / 1000).toFixed(1)}초)`;
   }, 100);
 
   try {
     const res = await fetch('/api/analysis', {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gender, face_shape, face_proportion, recommended_hair_styles }),
+      body:    JSON.stringify({ gender, face_shape, face_proportion, recommended_hair_styles }),
     });
-
     const data = await res.json();
 
     if (!res.ok || data.error) {
@@ -313,8 +232,7 @@ async function handleAnalyze() {
     showError('analysis-error', `네트워크 오류: ${e.message}`);
   } finally {
     clearInterval(timerInterval);
-    const finalS = ((Date.now() - startTime) / 1000).toFixed(1);
-    elapsedEl.textContent = `(${finalS}초 소요)`;
+    elapsedEl.textContent = `(${((Date.now() - startTime) / 1000).toFixed(1)}초 소요)`;
     setLoading(btn, false, '분석 결과 생성');
     $('btn-analyze').disabled = getCheckedStyles().length < 1;
   }
@@ -339,12 +257,12 @@ function renderAnalysisResult(data) {
 
 // ── 분석 결과 → 챗봇 컨텍스트 자동 주입 ──────────────────────────────────────
 function injectAnalysisToChat({ gender, face_shape, face_proportion, data }) {
-  $('chat-gender').value = gender;
-  $('chat-face-shape').value = face_shape;
-  $('chat-face-proportion').value = face_proportion;
-  $('chat-prev-analysis').value = data.analysis_summary || '';
-  $('chat-prev-recs').value = JSON.stringify(data.hair_recommendations || [], null, 2);
-  $('chat-user-profile').value = '{}';
+  $('chat-gender').value           = gender;
+  $('chat-face-shape').value       = face_shape;
+  $('chat-face-proportion').value  = face_proportion;
+  $('chat-prev-analysis').value    = data.analysis_summary || '';
+  $('chat-prev-recs').value        = JSON.stringify(data.hair_recommendations || [], null, 2);
+  $('chat-user-profile').value     = '{}';
 }
 
 // ── 챗봇 요청 ─────────────────────────────────────────────────────────────────
@@ -352,14 +270,14 @@ async function handleChat() {
   const user_message = $('chat-message').value.trim();
   if (!user_message) return;
 
-  const skipAnalysis = $('skip-analysis').checked;
-  const gender = $('chat-gender').value.trim();
-  const face_shape = $('chat-face-shape').value.trim();
+  const skipAnalysis    = $('skip-analysis').checked;
+  const gender          = $('chat-gender').value.trim();
+  const face_shape      = $('chat-face-shape').value.trim();
   const face_proportion = $('chat-face-proportion').value.trim();
 
-  let previous_analysis = null;
+  let previous_analysis      = null;
   let previous_recommendations = [];
-  let user_profile = {};
+  let user_profile           = {};
 
   if (!skipAnalysis) {
     previous_analysis = $('chat-prev-analysis').value.trim() || null;
@@ -385,24 +303,16 @@ async function handleChat() {
   const btn = $('btn-chat');
   setLoading(btn, true, '생성 중...');
 
-  const payload = {
-    user_message,
-    gender,
-    face_shape,
-    face_proportion,
-    previous_analysis,
-    previous_recommendations,
-    user_profile,
-    chat_history: appState.chatHistory,
-  };
-
   try {
     const res = await fetch('/api/chatbot', {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body:    JSON.stringify({
+        user_message, gender, face_shape, face_proportion,
+        previous_analysis, previous_recommendations, user_profile,
+        chat_history: appState.chatHistory,
+      }),
     });
-
     const data = await res.json();
 
     if (!res.ok || data.error) {
@@ -435,8 +345,8 @@ function renderChatResult(data) {
   $('res-chat-retrieval').textContent =
     `retrieved_count: ${ri.retrieved_count ?? 0}   fallback_stage: ${ri.fallback_stage ?? 'none'}`;
 
-  $('res-updated-profile').textContent = JSON.stringify(data.updated_user_profile || {}, null, 2);
-  $('res-chat-raw-json').textContent = JSON.stringify(data, null, 2);
+  $('res-updated-profile').textContent  = JSON.stringify(data.updated_user_profile || {}, null, 2);
+  $('res-chat-raw-json').textContent    = JSON.stringify(data, null, 2);
 }
 
 // ── 채팅 버블 ─────────────────────────────────────────────────────────────────
@@ -449,11 +359,11 @@ function appendBubble(role, text) {
   bubble.className = `chat-bubble ${role}`;
 
   const roleEl = document.createElement('div');
-  roleEl.className = 'bubble-role';
+  roleEl.className   = 'bubble-role';
   roleEl.textContent = role === 'user' ? '나' : 'AI';
 
   const textEl = document.createElement('div');
-  textEl.className = 'bubble-text';
+  textEl.className   = 'bubble-text';
   textEl.textContent = text;
 
   bubble.appendChild(roleEl);
@@ -483,7 +393,7 @@ function hideError(id) {
 }
 
 function setLoading(btn, loading, label) {
-  btn.disabled = loading;
+  btn.disabled    = loading;
   btn.textContent = label;
 }
 

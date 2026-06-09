@@ -57,24 +57,15 @@ def _get_db() -> sqlite3.Connection:
 
 
 def _query_hair_options(gender: str, face_shape: str, face_proportion: str) -> dict:
-    """정규화 테이블(face_conditions + condition_style_mapping + hair_styles)에서
-    조건에 맞는 추천/비추천 스타일 목록을 반환한다."""
+    """beauty_hair_rag_records에서 조건에 맞는 추천/비추천 스타일 목록을 반환한다."""
     with _get_db() as conn:
         cur = conn.cursor()
-
         cur.execute(
             """
-            SELECT
-                hs.style_name,
-                hs.style_code,
-                csm.is_recommended
-            FROM condition_style_mapping csm
-            JOIN face_conditions fc  ON csm.condition_id = fc.id
-            JOIN hair_styles     hs  ON csm.style_id     = hs.style_code
-            WHERE fc.gender          = ?
-              AND fc.face_shape      = ?
-              AND fc.face_proportion = ?
-            ORDER BY csm.is_recommended DESC, hs.style_name
+            SELECT style_name, style_code, relation
+            FROM beauty_hair_rag_records
+            WHERE gender = ? AND face_shape = ? AND face_proportion = ?
+            ORDER BY style_code
             """,
             (gender, face_shape, face_proportion),
         )
@@ -84,10 +75,7 @@ def _query_hair_options(gender: str, face_shape: str, face_proportion: str) -> d
         return {
             "recommended_styles": [],
             "worst_styles": [],
-            "source": {
-                "table": "condition_style_mapping",
-                "matched_count": 0,
-            },
+            "source": {"table": "beauty_hair_rag_records", "matched_count": 0},
         }
 
     recommended: list[dict] = []
@@ -95,7 +83,7 @@ def _query_hair_options(gender: str, face_shape: str, face_proportion: str) -> d
 
     for row in rows:
         entry = {"style_name": row["style_name"], "style_code": row["style_code"]}
-        if row["is_recommended"]:
+        if row["relation"] == "recommended":
             recommended.append(entry)
         else:
             worst.append(entry)
@@ -103,153 +91,104 @@ def _query_hair_options(gender: str, face_shape: str, face_proportion: str) -> d
     return {
         "recommended_styles": recommended,
         "worst_styles": worst,
-        "source": {
-            "table": "condition_style_mapping",
-            "matched_count": len(rows),
-        },
+        "source": {"table": "beauty_hair_rag_records", "matched_count": len(rows)},
     }
 
 
-def _query_hair_stats() -> dict:
-    """정규화 테이블 전체를 집계해 스타일별 추천/비추천 카운트를 반환한다."""
+def _query_beauty_stats() -> dict:
+    """beauty_hair_rag_records 테이블 기반 통계 반환."""
     with _get_db() as conn:
         cur = conn.cursor()
 
-        cur.execute(
-            """
-            SELECT
-                fc.gender,
-                hs.style_name,
-                hs.style_code,
-                SUM(CASE WHEN csm.is_recommended = 1 THEN 1 ELSE 0 END) AS recommended_count,
-                SUM(CASE WHEN csm.is_recommended = 0 THEN 1 ELSE 0 END) AS worst_count,
-                COUNT(*) AS total_count
-            FROM condition_style_mapping csm
-            JOIN face_conditions fc  ON csm.condition_id = fc.id
-            JOIN hair_styles     hs  ON csm.style_id     = hs.style_code
-            GROUP BY fc.gender, hs.style_code
-            ORDER BY recommended_count DESC, fc.gender, hs.style_name
-            """
-        )
-        rows = cur.fetchall()
+        cur.execute("SELECT COUNT(*) FROM beauty_hair_rag_records")
+        total = cur.fetchone()[0]
 
-        cur.execute("SELECT COUNT(*) FROM condition_style_mapping")
-        total_rows = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM beauty_hair_rag_records WHERE relation='recommended'")
+        recommended = cur.fetchone()[0]
 
-    items = [
-        {
-            "gender":             row["gender"],
-            "style_name":         row["style_name"],
-            "style_code":         row["style_code"],
-            "recommended_count":  row["recommended_count"],
-            "worst_count":        row["worst_count"],
-            "total_count":        row["total_count"],
-        }
-        for row in rows
-    ]
+        cur.execute("SELECT COUNT(*) FROM beauty_hair_rag_records WHERE relation!='recommended'")
+        not_recommended = cur.fetchone()[0]
 
-    return {
-        "items": items,
-        "summary": {
-            "total_rows":   total_rows,
-            "total_styles": len(items),
-        },
-    }
+        cur.execute("SELECT COUNT(*) FROM beauty_hair_rag_records WHERE needs_review=1")
+        needs_review = cur.fetchone()[0]
 
-
-def _query_hair_stats_raw() -> dict:
-    """조건별 원시 매핑 데이터를 반환 — 프론트에서 다양한 집계에 사용."""
-    with _get_db() as conn:
-        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM beauty_hair_rag_records WHERE needs_reason_fill=1")
+        needs_reason_fill = cur.fetchone()[0]
 
         cur.execute(
             """
-            SELECT
-                fc.gender,
-                fc.face_shape,
-                fc.face_proportion,
-                hs.style_name,
-                hs.style_code,
-                csm.is_recommended
-            FROM condition_style_mapping csm
-            JOIN face_conditions fc ON csm.condition_id = fc.id
-            JOIN hair_styles     hs ON csm.style_id     = hs.style_code
-            ORDER BY fc.gender, fc.face_shape, fc.face_proportion, hs.style_name
-            """
-        )
-        raw_rows = cur.fetchall()
-
-        cur.execute(
-            """
-            SELECT gender, face_shape, face_proportion, COUNT(*) AS doc_count
-            FROM face_conditions
+            SELECT gender, face_shape, face_proportion,
+                COUNT(*) AS total,
+                SUM(CASE WHEN relation='recommended'  THEN 1 ELSE 0 END) AS recommended,
+                SUM(CASE WHEN relation!='recommended' THEN 1 ELSE 0 END) AS not_recommended,
+                SUM(CASE WHEN needs_review=1          THEN 1 ELSE 0 END) AS needs_review,
+                SUM(CASE WHEN needs_reason_fill=1     THEN 1 ELSE 0 END) AS needs_reason_fill
+            FROM beauty_hair_rag_records
             GROUP BY gender, face_shape, face_proportion
             ORDER BY gender, face_shape, face_proportion
             """
         )
-        cond_rows = cur.fetchall()
+        condition_rows = cur.fetchall()
 
         cur.execute(
-            "SELECT DISTINCT face_shape FROM face_conditions ORDER BY face_shape"
+            """
+            SELECT gender, style_code, style_name,
+                COUNT(*) AS total,
+                SUM(CASE WHEN relation='recommended'  THEN 1 ELSE 0 END) AS recommended,
+                SUM(CASE WHEN relation!='recommended' THEN 1 ELSE 0 END) AS not_recommended,
+                SUM(CASE WHEN needs_review=1          THEN 1 ELSE 0 END) AS needs_review,
+                SUM(CASE WHEN needs_reason_fill=1     THEN 1 ELSE 0 END) AS needs_reason_fill
+            FROM beauty_hair_rag_records
+            GROUP BY gender, style_code
+            ORDER BY gender, style_code
+            """
         )
-        face_shapes = [r[0] for r in cur.fetchall()]
-
-        cur.execute(
-            "SELECT DISTINCT face_proportion FROM face_conditions ORDER BY face_proportion"
-        )
-        face_proportions = [r[0] for r in cur.fetchall()]
-
-        cur.execute("SELECT COUNT(*) FROM condition_style_mapping")
-        total_rows = cur.fetchone()[0]
-
-        cur.execute("SELECT style_code, style_name FROM hair_styles ORDER BY style_code")
-        all_style_rows = cur.fetchall()
-
-    items = [
-        {
-            "gender":          r["gender"],
-            "face_shape":      r["face_shape"],
-            "face_proportion": r["face_proportion"],
-            "style_name":      r["style_name"],
-            "style_code":      r["style_code"],
-            "is_recommended":  bool(r["is_recommended"]),
-        }
-        for r in raw_rows
-    ]
-
-    condition_counts = [
-        {
-            "gender":          r["gender"],
-            "face_shape":      r["face_shape"],
-            "face_proportion": r["face_proportion"],
-            "doc_count":       r["doc_count"],
-        }
-        for r in cond_rows
-    ]
-
-    all_hair_styles = [
-        {"style_code": r["style_code"], "style_name": r["style_name"]}
-        for r in all_style_rows
-    ]
+        style_rows = cur.fetchall()
 
     return {
-        "items":            items,
-        "condition_counts": condition_counts,
-        "face_shapes":      face_shapes,
-        "face_proportions": face_proportions,
-        "all_hair_styles":  all_hair_styles,
         "summary": {
-            "total_rows":   total_rows,
-            "total_styles": len(all_hair_styles),
+            "total":             total,
+            "recommended":       recommended,
+            "not_recommended":   not_recommended,
+            "needs_review":      needs_review,
+            "needs_reason_fill": needs_reason_fill,
         },
+        "by_condition": [
+            {
+                "gender":           r["gender"],
+                "face_shape":       r["face_shape"],
+                "face_proportion":  r["face_proportion"],
+                "total":            r["total"],
+                "recommended":      r["recommended"],
+                "not_recommended":  r["not_recommended"],
+                "needs_review":     r["needs_review"],
+                "needs_reason_fill":r["needs_reason_fill"],
+            }
+            for r in condition_rows
+        ],
+        "by_style": [
+            {
+                "gender":           r["gender"],
+                "style_code":       r["style_code"],
+                "style_name":       r["style_name"],
+                "total":            r["total"],
+                "recommended":      r["recommended"],
+                "not_recommended":  r["not_recommended"],
+                "needs_review":     r["needs_review"],
+                "needs_reason_fill":r["needs_reason_fill"],
+            }
+            for r in style_rows
+        ],
     }
 
 
 def _query_hair_style_map() -> dict:
-    """hair_styles 테이블의 style_name → style_code 매핑을 반환한다."""
+    """beauty_hair_rag_records에서 style_name → style_code 매핑을 반환한다."""
     with _get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT style_code, style_name FROM hair_styles")
+        cur.execute(
+            "SELECT DISTINCT style_name, style_code FROM beauty_hair_rag_records WHERE style_code IS NOT NULL"
+        )
         rows = cur.fetchall()
     return {row["style_name"]: row["style_code"] for row in rows}
 
@@ -275,10 +214,8 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
             self._serve_static("index.html")
         elif path == "/stats.html":
             self._serve_static("stats.html")
-        elif path == "/api/hair-style-stats":
-            self._handle_hair_stats()
-        elif path == "/api/hair-stats-raw":
-            self._handle_hair_stats_raw()
+        elif path == "/api/beauty-stats":
+            self._handle_beauty_stats()
         elif path == "/api/hair-style-map":
             self._handle_hair_style_map()
         elif path == "/api/hair-rag-coverage":
@@ -351,16 +288,9 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
 
-    def _handle_hair_stats(self) -> None:
+    def _handle_beauty_stats(self) -> None:
         try:
-            result = _query_hair_stats()
-            self._send_json(result)
-        except Exception as exc:
-            self._send_json({"error": str(exc)}, status=500)
-
-    def _handle_hair_stats_raw(self) -> None:
-        try:
-            result = _query_hair_stats_raw()
+            result = _query_beauty_stats()
             self._send_json(result)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
