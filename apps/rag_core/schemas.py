@@ -97,10 +97,24 @@ class GenerationInput:
         답변 규칙 또는 시스템 프롬프트
     """
 
-    user_question: str
-    retrieval_result: RetrievalResult
-    system_instruction: Optional[str] = None
-    user_context: dict[str, Any] = field(default_factory=dict)
+    user_message: str
+    gender: str
+    face_shape: str
+    face_proportion: str
+
+    previous_analysis: str | dict[str, Any] | None = None
+    previous_recommendations: list[dict[str, Any]] = field(default_factory=list)
+
+    user_profile: dict[str, Any] = field(default_factory=dict)
+    chat_history: list[dict[str, str]] = field(default_factory=list)
+
+    retrieval_result: RetrievalResult = field(
+        default_factory=lambda: RetrievalResult(query="")
+    )
+
+    intent: Optional[str] = None
+
+
 
 @dataclass
 class AnalysisGenerationInput:
@@ -171,6 +185,10 @@ class ChatGenerationInput:
     )
 
     intent: Optional[str] = None
+
+    # 사용자 현재 질문에서 감지된 헤어스타일
+    detected_style: dict[str, str] | None = None
+    detected_style_is_recommended: bool = False
 
 @dataclass
 class GenerationResult:

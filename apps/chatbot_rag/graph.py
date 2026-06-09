@@ -9,9 +9,18 @@ from apps.chatbot_rag.nodes import (
     check_analysis_exists,
     classify_intent,
     generate_answer_node,
+    generate_non_rag_answer,
     retrieve_context,
     update_memory,
 )
+
+from apps.chatbot_rag.prompts import (
+    INTENT_GREETING,
+    INTENT_IRRELEVANT,
+    INTENT_NOISE,
+    INTENT_SMALLTALK,
+)
+
 from apps.chatbot_rag.state import ChatbotState
 
 
@@ -32,8 +41,20 @@ def route_after_intent(state: ChatbotState) -> str:
     """
     intent 분류 후 다음 노드를 결정한다.
 
-    질문 의도가 불명확하면 객관식 재질문으로 이동한다.
+    - non-RAG intent는 고정 응답으로 보낸다.
+    - unclear는 객관식 재질문으로 보낸다.
+    - 나머지 hair 상담 intent만 RAG 검색으로 보낸다.
     """
+
+    intent = state.get("intent")
+
+    if intent in {
+        INTENT_GREETING,
+        INTENT_SMALLTALK,
+        INTENT_IRRELEVANT,
+        INTENT_NOISE,
+    }:
+        return "generate_non_rag_answer"
 
     if state.get("needs_clarification"):
         return "ask_clarification"
@@ -51,6 +72,7 @@ def build_chatbot_graph():
     graph.add_node("check_analysis_exists", check_analysis_exists)
     graph.add_node("classify_intent", classify_intent)
     graph.add_node("ask_clarification", ask_clarification)
+    graph.add_node("generate_non_rag_answer", generate_non_rag_answer)
     graph.add_node("retrieve_context", retrieve_context)
     graph.add_node("generate_answer", generate_answer_node)
     graph.add_node("update_memory", update_memory)
@@ -67,15 +89,17 @@ def build_chatbot_graph():
     )
 
     graph.add_conditional_edges(
-        "classify_intent",
-        route_after_intent,
-        {
-            "ask_clarification": "ask_clarification",
-            "retrieve_context": "retrieve_context",
-        },
-    )
+    "classify_intent",
+    route_after_intent,
+    {
+        "ask_clarification": "ask_clarification",
+        "generate_non_rag_answer": "generate_non_rag_answer",
+        "retrieve_context": "retrieve_context",
+    },
+)
 
     graph.add_edge("ask_clarification", "update_memory")
+    graph.add_edge("generate_non_rag_answer", "update_memory")
     graph.add_edge("retrieve_context", "generate_answer")
     graph.add_edge("generate_answer", "update_memory")
     graph.add_edge("update_memory", END)
@@ -114,13 +138,18 @@ def run_chatbot(
     }
 
     result = graph.invoke(initial_state)
-
+    
     return {
         "answer": result.get("answer", ""),
         "intent": result.get("intent"),
         "category": result.get("category"),
         "needs_clarification": result.get("needs_clarification", False),
         "clarification_options": result.get("clarification_options", []),
+        "detected_style": result.get("detected_style"),
+        "detected_style_is_recommended": result.get(
+            "detected_style_is_recommended",
+            False,
+        ),
         "retrieval_info": result.get(
             "retrieval_info",
             {

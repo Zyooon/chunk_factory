@@ -36,6 +36,10 @@ class ChatbotState(TypedDict, total=False):
     intent: str
     category: str
 
+    # 사용자 메시지에서 감지된 헤어스타일
+    detected_style: dict[str, str] | None
+    detected_style_is_recommended: bool
+
     # 문맥이 불명확할 때 객관식 재질문에 사용
     needs_clarification: bool
     clarification_options: list[str]
@@ -55,3 +59,4 @@ class ChatbotState(TypedDict, total=False):
     # 업데이트된 대화 기록/유저 정보
     updated_chat_history: list[dict[str, str]]
     updated_user_profile: dict[str, Any]
+
