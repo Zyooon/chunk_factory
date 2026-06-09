@@ -1,4 +1,20 @@
 /* ── Reset ─────────────────────────────────────────────────────────── */
+
+.elapsed-badge {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #8e8e93;
+  margin-left: 6px;
+}
+
+.no-rag-data {
+  color: #ff3b30;
+}
+.no-rag-data::after {
+  content: " (데이터 없음)";
+  font-size: 0.7em;
+  opacity: 0.8;
+}
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ── Base ──────────────────────────────────────────────────────────── */
@@ -182,6 +198,19 @@ textarea:focus {
   color: #007aff;
   font-weight: 600;
 }
+
+.style-rank-label {
+  grid-column: 1 / -1;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #636366;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 2px 2px;
+  border-top: 1px solid #e5e5ea;
+  margin-top: 2px;
+}
+.style-rank-label:first-child { border-top: none; padding-top: 2px; }
 
 .style-count {
   font-size: 0.75rem;

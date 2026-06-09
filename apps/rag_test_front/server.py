@@ -202,6 +202,9 @@ def _query_hair_stats_raw() -> dict:
         cur.execute("SELECT COUNT(*) FROM condition_style_mapping")
         total_rows = cur.fetchone()[0]
 
+        cur.execute("SELECT style_code, style_name FROM hair_styles ORDER BY style_code")
+        all_style_rows = cur.fetchall()
+
     items = [
         {
             "gender":          r["gender"],
@@ -224,18 +227,38 @@ def _query_hair_stats_raw() -> dict:
         for r in cond_rows
     ]
 
-    style_set = {it["style_code"] or it["style_name"] for it in items}
+    all_hair_styles = [
+        {"style_code": r["style_code"], "style_name": r["style_name"]}
+        for r in all_style_rows
+    ]
 
     return {
         "items":            items,
         "condition_counts": condition_counts,
         "face_shapes":      face_shapes,
         "face_proportions": face_proportions,
+        "all_hair_styles":  all_hair_styles,
         "summary": {
             "total_rows":   total_rows,
-            "total_styles": len(style_set),
+            "total_styles": len(all_hair_styles),
         },
     }
+
+
+def _query_hair_style_map() -> dict:
+    """hair_styles 테이블의 style_name → style_code 매핑을 반환한다."""
+    with _get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT style_code, style_name FROM hair_styles")
+        rows = cur.fetchall()
+    return {row["style_name"]: row["style_code"] for row in rows}
+
+
+def _query_rag_coverage() -> dict:
+    """ChromaDB의 style_groups 메타데이터에 등장하는 style_code 목록을 반환한다."""
+    from apps.rag_core.retriever import get_covered_style_codes
+    covered = get_covered_style_codes()
+    return {"covered_codes": sorted(covered)}
 
 
 class _RAGTestHandler(BaseHTTPRequestHandler):
@@ -256,6 +279,10 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
             self._handle_hair_stats()
         elif path == "/api/hair-stats-raw":
             self._handle_hair_stats_raw()
+        elif path == "/api/hair-style-map":
+            self._handle_hair_style_map()
+        elif path == "/api/hair-rag-coverage":
+            self._handle_rag_coverage()
         elif path.startswith("/static/"):
             self._serve_static(path[len("/static/"):])
         else:
@@ -334,6 +361,20 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
     def _handle_hair_stats_raw(self) -> None:
         try:
             result = _query_hair_stats_raw()
+            self._send_json(result)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=500)
+
+    def _handle_hair_style_map(self) -> None:
+        try:
+            result = _query_hair_style_map()
+            self._send_json(result)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=500)
+
+    def _handle_rag_coverage(self) -> None:
+        try:
+            result = _query_rag_coverage()
             self._send_json(result)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)

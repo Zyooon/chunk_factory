@@ -78,7 +78,7 @@ class RetrievalResult:
     query: str
     documents: List[RetrievedDocument] = field(default_factory=list)
     retrieved_count: int = 0
-    fallback_stage: Optional[int] = None
+    fallback_stage: int | str | None = None
     used_filter: Metadata = field(default_factory=dict)
 
 

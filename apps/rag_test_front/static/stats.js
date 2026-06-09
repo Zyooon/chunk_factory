@@ -1,12 +1,19 @@
 'use strict';
 
 // ── 전역 상태 ──────────────────────────────────────────────────────────────────
-let rawItems      = [];   // { gender, face_shape, face_proportion, style_name, style_code, is_recommended }
-let conditionCounts = []; // { gender, face_shape, face_proportion, doc_count }
-let coverageData  = [];   // 계산된 커버리지 배열 (체크박스 토글 시 재사용)
+// 고정 기준 조합 (얼굴형 5 × 삼정 4 × 성별 2 = 40)
+const EXPECTED_GENDERS     = ['남성', '여성'];
+const EXPECTED_FACE_SHAPES = ['계란형', '둥근형', '각진형', '장방형', '역삼각형'];
+const EXPECTED_PROPORTIONS = ['균형', '상안부_긴형', '중안부_긴형', '하안부_긴형'];
+
+let rawItems        = [];   // { gender, face_shape, face_proportion, style_name, style_code, is_recommended }
+let conditionCounts = [];   // { gender, face_shape, face_proportion, doc_count }
+let allHairStyles   = [];   // hair_styles 테이블 전체 (매핑 없는 스타일 포함)
+let coverageData    = [];   // 계산된 커버리지 배열 (체크박스 토글 시 재사용)
 let sortCol = 'recommended_count';
 let sortDir = 'desc';
-let selectedStyle = null; // 클릭된 스타일 행
+let selectedStyle       = null; // 클릭된 스타일 행
+let selectedMatrixCombo = null; // 클릭된 매트릭스 셀 { gender, face_shape, face_proportion }
 
 // ── 스타일 정규화 유틸 ──────────────────────────────────────────────────────────
 function normalizeStyleItem(item) {
@@ -44,6 +51,7 @@ async function init() {
   document.getElementById('face-proportion-filter').addEventListener('change', onFilterChange);
   document.getElementById('only-insufficient-cb').addEventListener('change', renderCoverageTable);
   document.getElementById('detail-close-btn').addEventListener('click', closeDetailPanel);
+  document.getElementById('matrix-detail-close-btn').addEventListener('click', closeMatrixDetailPanel);
 
   document.querySelectorAll('#stats-table thead th[data-col]').forEach((th) => {
     th.addEventListener('click', () => {
@@ -70,8 +78,9 @@ async function loadStats() {
       return;
     }
 
-    rawItems        = data.items           || [];
+    rawItems        = data.items            || [];
     conditionCounts = data.condition_counts || [];
+    allHairStyles   = data.all_hair_styles  || [];
 
     document.getElementById('sum-rows').textContent   = (data.summary?.total_rows   ?? '-').toLocaleString();
     document.getElementById('sum-styles').textContent = (data.summary?.total_styles ?? '-').toLocaleString();
@@ -81,6 +90,7 @@ async function loadStats() {
     document.getElementById('loading-msg').classList.add('hidden');
     document.getElementById('table-wrap').classList.remove('hidden');
     document.getElementById('coverage-card').classList.remove('hidden');
+    document.getElementById('matrix-card').classList.remove('hidden');
 
     renderAll();
   } catch (e) {
@@ -108,8 +118,10 @@ function populateFilterOptions(faceShapes, faceProportions) {
 
 // ── 필터 변경 처리 ──────────────────────────────────────────────────────────────
 function onFilterChange() {
-  selectedStyle = null;
+  selectedStyle       = null;
+  selectedMatrixCombo = null;
   document.getElementById('style-detail-panel').classList.add('hidden');
+  document.getElementById('matrix-detail-panel').classList.add('hidden');
   renderAll();
 }
 
@@ -144,7 +156,7 @@ function filterRawItems(gender, shape, prop) {
 }
 
 // ── 스타일별 집계 ──────────────────────────────────────────────────────────────
-function aggregateStyleStats(items) {
+function aggregateStyleStats(items, genderFilter = 'all') {
   const map = new Map();
   items.forEach((r) => {
     const key = `${r.gender}__${r.style_code || r.style_name}`;
@@ -156,6 +168,7 @@ function aggregateStyleStats(items) {
         recommended_count: 0,
         worst_count:       0,
         total_count:       0,
+        no_data:           false,
       });
     }
     const e = map.get(key);
@@ -163,6 +176,28 @@ function aggregateStyleStats(items) {
     else                  e.worst_count++;
     e.total_count++;
   });
+
+  // 매핑 데이터가 없는 스타일도 0건으로 포함
+  allHairStyles.forEach((style) => {
+    const gender = style.style_code?.startsWith('f-') ? '여성'
+                 : style.style_code?.startsWith('m-') ? '남성'
+                 : null;
+    if (!gender) return;
+    if (genderFilter !== 'all' && gender !== genderFilter) return;
+    const key = `${gender}__${style.style_code || style.style_name}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        gender,
+        style_name:        style.style_name,
+        style_code:        style.style_code,
+        recommended_count: 0,
+        worst_count:       0,
+        total_count:       0,
+        no_data:           true,
+      });
+    }
+  });
+
   return Array.from(map.values());
 }
 
@@ -172,7 +207,7 @@ function renderStyleTable() {
   const shape  = getFaceShapeFilter();
   const prop   = getFaceProportionFilter();
 
-  let items = aggregateStyleStats(filterRawItems(gender, shape, prop));
+  let items = aggregateStyleStats(filterRawItems(gender, shape, prop), gender);
 
   items = [...items].sort((a, b) => {
     let va = a[sortCol] ?? '';
@@ -207,6 +242,7 @@ function renderStyleTable() {
   items.forEach((row) => {
     const tr = document.createElement('tr');
     tr.classList.add('clickable');
+    if (row.no_data) tr.classList.add('no-data-row');
 
     const isSelected = selectedStyle &&
       (selectedStyle.style_code
@@ -223,9 +259,13 @@ function renderStyleTable() {
     const recPct  = ((row.recommended_count / maxRec)  * 100).toFixed(0);
     const wrstPct = ((row.worst_count       / maxWrst) * 100).toFixed(0);
 
+    const noDataBadge = row.no_data
+      ? `<span style="font-size:0.68rem;color:#aeaeb2;margin-left:4px;">(매핑 없음)</span>`
+      : '';
+
     tr.innerHTML = `
       <td><span class="gender-badge ${genderClass}">${row.gender}</span></td>
-      <td>${row.style_name}</td>
+      <td>${row.style_name}${noDataBadge}</td>
       <td>${codeHtml}</td>
       <td class="bar-cell">
         <div class="bar-wrap">
@@ -358,12 +398,27 @@ function getStatus(docCount, recCount, worstCount) {
 
 function computeAndRenderCoverage() {
   const gender = getGenderFilter();
+  const genders = gender === 'all' ? EXPECTED_GENDERS : [gender];
 
-  const combos = conditionCounts.filter((c) =>
-    gender === 'all' || c.gender === gender
-  );
+  // 고정 기준 40조합(성별 필터 적용)에서 출발 — conditionCounts에 없으면 doc_count=0
+  const expectedCombos = [];
+  genders.forEach((g) => {
+    EXPECTED_FACE_SHAPES.forEach((s) => {
+      EXPECTED_PROPORTIONS.forEach((p) => {
+        const found = conditionCounts.find(
+          (c) => c.gender === g && c.face_shape === s && c.face_proportion === p
+        );
+        expectedCombos.push({
+          gender:          g,
+          face_shape:      s,
+          face_proportion: p,
+          doc_count:       found ? found.doc_count : 0,
+        });
+      });
+    });
+  });
 
-  coverageData = combos.map((combo) => {
+  coverageData = expectedCombos.map((combo) => {
     const filtered = rawItems.filter((r) =>
       r.gender          === combo.gender &&
       r.face_shape      === combo.face_shape &&
@@ -409,12 +464,13 @@ function computeAndRenderCoverage() {
   const insufficient = coverageData.filter((c) => ['매우 부족', '부족'].includes(c.status)).length;
   const biased       = coverageData.filter((c) => c.status === '편향').length;
 
-  document.getElementById('cov-total').textContent       = total;
-  document.getElementById('cov-no-data').textContent     = noData;
+  document.getElementById('cov-total').textContent        = total;
+  document.getElementById('cov-no-data').textContent      = noData;
   document.getElementById('cov-insufficient').textContent = insufficient;
-  document.getElementById('cov-biased').textContent      = biased;
+  document.getElementById('cov-biased').textContent       = biased;
 
   renderCoverageTable();
+  renderMissingMatrix();
 }
 
 function renderCoverageTable() {
@@ -450,6 +506,209 @@ function renderCoverageTable() {
     `;
     tbody.appendChild(tr);
   });
+}
+
+// ── 수집 현황 매트릭스 ─────────────────────────────────────────────────────────
+const MATRIX_STATUS_CLASS = {
+  '없음':    'm-none',
+  '매우 부족': 'm-very-poor',
+  '부족':    'm-poor',
+  '편향':    'm-biased',
+  '보통':    'm-normal',
+};
+
+function renderMissingMatrix() {
+  const wrap = document.getElementById('matrix-tables');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  const gender  = getGenderFilter();
+  const genders = gender === 'all' ? EXPECTED_GENDERS : [gender];
+
+  genders.forEach((g) => {
+    const block = document.createElement('div');
+    block.className = 'matrix-block';
+
+    // 성별 타이틀
+    const titleEl = document.createElement('div');
+    titleEl.className = `matrix-gender-title ${g === '남성' ? 'male' : 'female'}`;
+    titleEl.textContent = g;
+    block.appendChild(titleEl);
+
+    // grid: 1 label col + 4 proportion cols
+    const cols = 1 + EXPECTED_PROPORTIONS.length;
+    const grid = document.createElement('div');
+    grid.className = 'matrix-grid';
+    grid.style.gridTemplateColumns = `80px repeat(${EXPECTED_PROPORTIONS.length}, 1fr)`;
+
+    // 헤더 행
+    const cornerCell = document.createElement('div');
+    cornerCell.className = 'matrix-cell m-header';
+    grid.appendChild(cornerCell);
+
+    EXPECTED_PROPORTIONS.forEach((p) => {
+      const cell = document.createElement('div');
+      cell.className = 'matrix-cell m-header';
+      cell.textContent = formatFaceProportion(p);
+      grid.appendChild(cell);
+    });
+
+    // 데이터 행 (얼굴형별)
+    EXPECTED_FACE_SHAPES.forEach((shape) => {
+      const labelCell = document.createElement('div');
+      labelCell.className = 'matrix-cell m-row-label';
+      labelCell.textContent = shape;
+      grid.appendChild(labelCell);
+
+      EXPECTED_PROPORTIONS.forEach((prop) => {
+        const combo = coverageData.find(
+          (c) => c.gender === g && c.face_shape === shape && c.face_proportion === prop
+        );
+        const cell = document.createElement('div');
+        const status = combo ? combo.status : '없음';
+        const count  = combo ? combo.doc_count : 0;
+        cell.className = `matrix-cell clickable ${MATRIX_STATUS_CLASS[status] || 'm-none'}`;
+        cell.textContent = count;
+        cell.title = `${g} / ${shape} / ${formatFaceProportion(prop)}\n상태: ${status} (${count}건)\n클릭하면 상세 보기`;
+
+        const isSel = selectedMatrixCombo &&
+          selectedMatrixCombo.gender       === g     &&
+          selectedMatrixCombo.face_shape   === shape &&
+          selectedMatrixCombo.face_proportion === prop;
+        if (isSel) cell.classList.add('matrix-cell-selected');
+
+        cell.addEventListener('click', () => onMatrixCellClick(g, shape, prop));
+        grid.appendChild(cell);
+      });
+    });
+
+    block.appendChild(grid);
+    wrap.appendChild(block);
+  });
+
+  // 요약 문구
+  const summaryEl = document.getElementById('matrix-summary');
+  if (summaryEl) {
+    const totalExpected = genders.length * EXPECTED_FACE_SHAPES.length * EXPECTED_PROPORTIONS.length;
+    const missingCount  = coverageData.filter((c) => c.status === '없음').length;
+    const normalCount   = coverageData.filter((c) => c.status === '보통').length;
+    summaryEl.innerHTML =
+      `<span style="color:#ff3b30;font-weight:700;">${missingCount}조합</span> 데이터 없음 &nbsp;/&nbsp; ` +
+      `<span style="color:#34c759;font-weight:700;">${normalCount}조합</span> 보통 &nbsp;/&nbsp; ` +
+      `전체 <strong>${totalExpected}조합</strong> 기준`;
+  }
+
+  // 없는 조합 목록
+  const listWrap = document.getElementById('missing-list-wrap');
+  const listEl   = document.getElementById('missing-list');
+  if (listWrap && listEl) {
+    const missingCombos = coverageData.filter((c) => c.status === '없음');
+    if (missingCombos.length > 0) {
+      listEl.innerHTML = '';
+      missingCombos.forEach((c) => {
+        const li = document.createElement('li');
+        li.textContent = `${c.gender} / ${c.face_shape} / ${formatFaceProportion(c.face_proportion)}`;
+        listEl.appendChild(li);
+      });
+      listWrap.classList.remove('hidden');
+    } else {
+      listWrap.classList.add('hidden');
+    }
+  }
+}
+
+// ── 매트릭스 셀 클릭 ──────────────────────────────────────────────────────────
+function onMatrixCellClick(gender, faceShape, faceProportion) {
+  const isSame = selectedMatrixCombo &&
+    selectedMatrixCombo.gender          === gender      &&
+    selectedMatrixCombo.face_shape      === faceShape   &&
+    selectedMatrixCombo.face_proportion === faceProportion;
+
+  if (isSame) {
+    closeMatrixDetailPanel();
+    return;
+  }
+
+  selectedMatrixCombo = { gender, face_shape: faceShape, face_proportion: faceProportion };
+  renderMissingMatrix();
+  renderMatrixDetailPanel(gender, faceShape, faceProportion);
+}
+
+function closeMatrixDetailPanel() {
+  selectedMatrixCombo = null;
+  document.getElementById('matrix-detail-panel').classList.add('hidden');
+  renderMissingMatrix();
+}
+
+function renderMatrixDetailPanel(gender, faceShape, faceProportion) {
+  const combo = coverageData.find(
+    (c) => c.gender === gender && c.face_shape === faceShape && c.face_proportion === faceProportion
+  );
+
+  // rawItems에서 이 조합의 스타일별 추천/비추천 집계
+  const styleMap = new Map();
+  rawItems
+    .filter((r) => r.gender === gender && r.face_shape === faceShape && r.face_proportion === faceProportion)
+    .forEach((r) => {
+      const key = r.style_code || r.style_name;
+      if (!styleMap.has(key)) {
+        styleMap.set(key, { style_name: r.style_name, style_code: r.style_code, rec_count: 0, worst_count: 0 });
+      }
+      const e = styleMap.get(key);
+      if (r.is_recommended) e.rec_count++;
+      else                  e.worst_count++;
+    });
+
+  const allStyles   = Array.from(styleMap.values());
+  const recStyles   = allStyles.filter((s) => s.rec_count   > 0).sort((a, b) => b.rec_count   - a.rec_count);
+  const worstStyles = allStyles.filter((s) => s.worst_count > 0).sort((a, b) => b.worst_count - a.worst_count);
+
+  // 헤더
+  document.getElementById('matrix-detail-title').textContent =
+    `${gender} / ${faceShape} / ${formatFaceProportion(faceProportion)}`;
+
+  const status    = combo ? combo.status   : '없음';
+  const docCount  = combo ? combo.doc_count : 0;
+  const statusCls = MATRIX_STATUS_CLASS[status] || 'm-none';
+  document.getElementById('matrix-detail-info').innerHTML =
+    `상태: <span class="matrix-cell ${statusCls}" style="display:inline-block;padding:2px 10px;border-radius:6px;">${status}</span>` +
+    `&nbsp;&nbsp; 분석 문서 수: <strong>${docCount}</strong>건`;
+
+  // 추천 테이블
+  const recTbody = document.getElementById('matrix-detail-rec-tbody');
+  recTbody.innerHTML = '';
+  if (recStyles.length === 0) {
+    recTbody.innerHTML = '<tr><td colspan="3" style="color:#aeaeb2;text-align:center;padding:12px;">데이터 없음</td></tr>';
+  } else {
+    recStyles.forEach((s) => {
+      const tr = document.createElement('tr');
+      const codeHtml = s.style_code
+        ? `<span class="code-cell">${s.style_code}</span>`
+        : `<span class="no-code">미등록</span>`;
+      tr.innerHTML = `<td>${s.style_name}</td><td>${codeHtml}</td><td class="rec-count">${s.rec_count}</td>`;
+      recTbody.appendChild(tr);
+    });
+  }
+
+  // 비추천 테이블
+  const worstTbody = document.getElementById('matrix-detail-worst-tbody');
+  worstTbody.innerHTML = '';
+  if (worstStyles.length === 0) {
+    worstTbody.innerHTML = '<tr><td colspan="3" style="color:#aeaeb2;text-align:center;padding:12px;">데이터 없음</td></tr>';
+  } else {
+    worstStyles.forEach((s) => {
+      const tr = document.createElement('tr');
+      const codeHtml = s.style_code
+        ? `<span class="code-cell">${s.style_code}</span>`
+        : `<span class="no-code">미등록</span>`;
+      tr.innerHTML = `<td>${s.style_name}</td><td>${codeHtml}</td><td class="wrst-count">${s.worst_count}</td>`;
+      worstTbody.appendChild(tr);
+    });
+  }
+
+  const panel = document.getElementById('matrix-detail-panel');
+  panel.classList.remove('hidden');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // ── 에러 표시 ──────────────────────────────────────────────────────────────────

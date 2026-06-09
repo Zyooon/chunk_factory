@@ -8,6 +8,7 @@
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -146,6 +147,41 @@ def _get_models(inline_mode: bool):
 # 4. 데이터 파일 탐색 및 파싱
 # ──────────────────────────────────────────────────────────────
 CLEANED_DATA_DIR = PROJECT_ROOT / "data" / "cleaned"
+HAIRSTYLE_GROUP_PATH = PROJECT_ROOT / "data" / "hairstyle_group.md"
+
+
+def parse_hairstyle_group() -> list[tuple[str, str]]:
+    """hairstyle_group.md 테이블 행에서 (style_code, style_name) 목록을 파싱한다."""
+    if not HAIRSTYLE_GROUP_PATH.exists():
+        print(f"  [경고] hairstyle_group.md 파일을 찾을 수 없습니다: {HAIRSTYLE_GROUP_PATH}")
+        return []
+    pattern = re.compile(r"^\|\s*((?:f|m)-\d+)\s*\|\s*(\S+)\s*\|")
+    styles: list[tuple[str, str]] = []
+    for line in HAIRSTYLE_GROUP_PATH.read_text(encoding="utf-8").splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            styles.append((m.group(1), m.group(2)))
+    return styles
+
+
+def _ensure_all_hair_styles(HairStyle) -> None:
+    """hairstyle_group.md의 모든 스타일이 hair_styles 테이블에 있도록 보장한다.
+
+    done.json 유무에 관계없이 항상 호출된다.
+    """
+    styles = parse_hairstyle_group()
+    if not styles:
+        return
+    added = 0
+    for code, name in styles:
+        _, created = HairStyle.objects.get_or_create(
+            style_code=code,
+            defaults={"style_name": name},
+        )
+        if created:
+            added += 1
+    print(f"  [보장] hair_styles 전체 {len(styles)}개 확인 / 신규 추가 {added}개")
+
 
 def find_json_files() -> list[Path]:
     if not CLEANED_DATA_DIR.exists():
@@ -285,7 +321,7 @@ def _ensure_tables(models_tuple: tuple) -> None:
 # ──────────────────────────────────────────────────────────────
 def main() -> None:
     print("=" * 60)
-    print("  Beauty Hair Data Ingestion — 정규화 DB 구조 적재")
+    print("  Beauty Hair Data Ingestion - 정규화 DB 구조 적재")
     print("=" * 60)
 
     inline_mode = _setup_django()
@@ -293,6 +329,10 @@ def main() -> None:
 
     if inline_mode:
         _ensure_tables(models_tuple)
+
+    # done.json 유무와 무관하게 hairstyle_group.md 전체 스타일을 항상 보장
+    _, _, HairStyle, _, _ = models_tuple
+    _ensure_all_hair_styles(HairStyle)
 
     json_files = find_json_files()
     if not json_files:

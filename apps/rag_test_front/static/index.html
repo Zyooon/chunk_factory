@@ -49,12 +49,9 @@
           <label class="field-label" for="face-proportion">삼정 비율</label>
           <select id="face-proportion">
             <option value="균형">균형</option>
-            <option value="상안부_긴형">상안부_긴형</option>
-            <option value="상안부_짧은형">상안부_짧은형</option>
-            <option value="중안부_긴형">중안부_긴형</option>
-            <option value="중안부_짧은형">중안부_짧은형</option>
-            <option value="하안부_긴형">하안부_긴형</option>
-            <option value="하안부_짧은형">하안부_짧은형</option>
+            <option value="상안부_긴형">상안부 긴형</option>
+            <option value="중안부_긴형">중안부 긴형</option>
+            <option value="하안부_긴형">하안부 긴형</option>
           </select>
         </div>
       </div>
@@ -72,7 +69,7 @@
         <div class="form-group">
           <label class="field-label">
             추천 헤어스타일
-            <span class="hint">정확히 3개 선택 후 분석 결과 생성</span>
+            <span class="hint">1~3개 선택 후 분석 결과 생성</span>
           </label>
           <div id="style-list" class="style-grid"></div>
           <div id="style-count" class="style-count">0 / 3 선택됨</div>
@@ -93,7 +90,7 @@
       <div id="analysis-error" class="error-box hidden"></div>
 
       <div id="analysis-result" class="result-area hidden">
-        <h3>분석 결과</h3>
+        <h3>분석 결과 <span id="analysis-elapsed" class="elapsed-badge"></span></h3>
 
         <div class="result-block">
           <h4 class="result-label">분석 요약</h4>

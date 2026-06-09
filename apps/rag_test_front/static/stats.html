@@ -202,6 +202,7 @@
     .bar-num.wrst { color: #ff3b30; }
 
     .no-code { color: #aeaeb2; font-style: italic; }
+    tbody tr.no-data-row td { color: #aeaeb2; }
 
     #loading-msg { color: #636366; font-size: 0.85rem; padding: 20px; }
     #stats-error { color: #c0392b; padding: 10px; }
@@ -296,6 +297,121 @@
       align-items: center;
       gap: 5px;
     }
+
+    /* 매트릭스 섹션 */
+    .matrix-pair {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .matrix-block { flex: 1; min-width: 280px; }
+
+    .matrix-gender-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      padding: 3px 10px;
+      border-radius: 6px;
+      display: inline-block;
+    }
+    .matrix-gender-title.male   { background: #e3f0ff; color: #0071e3; }
+    .matrix-gender-title.female { background: #ffeaf2; color: #c0392b; }
+
+    .matrix-grid {
+      display: grid;
+      gap: 3px;
+    }
+
+    .matrix-cell {
+      padding: 6px 4px;
+      border-radius: 5px;
+      text-align: center;
+      font-size: 0.72rem;
+      line-height: 1.3;
+    }
+
+    .matrix-cell.m-header {
+      background: #f2f2f7;
+      font-weight: 600;
+      color: #636366;
+      font-size: 0.68rem;
+    }
+
+    .matrix-cell.m-row-label {
+      background: #f9f9fb;
+      font-weight: 600;
+      font-size: 0.72rem;
+      color: #3a3a3c;
+      text-align: left;
+      padding-left: 8px;
+      display: flex;
+      align-items: center;
+    }
+
+    .matrix-cell.m-none      { background: #ff3b30; color: #fff; font-weight: 700; }
+    .matrix-cell.m-very-poor { background: #ff9500; color: #fff; font-weight: 600; }
+    .matrix-cell.m-poor      { background: #ffd60a; color: #3a3a3c; font-weight: 600; }
+    .matrix-cell.m-biased    { background: #5e5ce6; color: #fff; }
+    .matrix-cell.m-normal    { background: #34c759; color: #fff; }
+
+    .matrix-legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .matrix-legend-item {
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+
+    .matrix-missing-list {
+      margin-top: 12px;
+      font-size: 0.8rem;
+    }
+
+    .matrix-missing-list ul {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .matrix-missing-list li {
+      background: #fff0ef;
+      border: 1px solid #ffb3ae;
+      color: #c0392b;
+      border-radius: 8px;
+      padding: 3px 10px;
+      font-size: 0.75rem;
+    }
+
+    .matrix-cell.clickable { cursor: pointer; }
+    .matrix-cell.clickable:hover { opacity: 0.75; }
+    .matrix-cell.matrix-cell-selected {
+      outline: 2px solid #007aff;
+      outline-offset: 2px;
+      z-index: 1;
+      position: relative;
+    }
+
+    .matrix-detail-cols {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .matrix-detail-col { flex: 1; min-width: 200px; }
+    .matrix-detail-col h4 {
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
@@ -317,11 +433,11 @@
         </div>
         <div class="summary-item">
           <span class="summary-value" id="sum-styles">-</span>
-          <span class="summary-label">집계된 스타일 수</span>
+          <span class="summary-label">전체 스타일 수</span>
         </div>
       </div>
       <p style="font-size:0.72rem;color:#aeaeb2;">
-        ※ style_code가 없는 스타일은 DB에만 존재하는 항목 (매핑 미등록)
+        ※ <span style="color:#aeaeb2;">(매핑 없음)</span> 표시 스타일은 hair_styles에 등록됐으나 condition_style_mapping 데이터가 없는 항목입니다.
       </p>
     </div>
 
@@ -447,6 +563,74 @@
           </thead>
           <tbody id="coverage-tbody"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- ⑥ 수집 현황 매트릭스 -->
+    <div class="stats-card hidden" id="matrix-card">
+      <h2>수집 현황 매트릭스
+        <span style="font-size:0.78rem;font-weight:400;color:#636366;">
+          — 얼굴형 5 × 삼정 4 × 성별 2 = 전체 40조합 기준
+        </span>
+      </h2>
+
+      <div id="matrix-summary" style="margin-bottom:12px;font-size:0.85rem;"></div>
+
+      <div class="matrix-legend">
+        <span class="matrix-legend-item m-none">없음 (0건)</span>
+        <span class="matrix-legend-item m-very-poor">매우 부족 (1–2건)</span>
+        <span class="matrix-legend-item m-poor">부족 (3–5건)</span>
+        <span class="matrix-legend-item m-biased">편향</span>
+        <span class="matrix-legend-item m-normal">보통</span>
+      </div>
+
+      <div class="matrix-pair" id="matrix-tables"></div>
+
+      <div class="matrix-missing-list hidden" id="missing-list-wrap">
+        <strong>데이터 없는 조합 목록</strong>
+        <ul id="missing-list"></ul>
+      </div>
+    </div>
+
+    <!-- ⑦ 매트릭스 셀 클릭 상세 패널 -->
+    <div class="stats-card hidden" id="matrix-detail-panel">
+      <h2 id="matrix-detail-title">조합 상세</h2>
+      <button class="detail-close-btn" id="matrix-detail-close-btn">닫기 ✕</button>
+      <div class="condition-label" id="matrix-detail-info"></div>
+      <p class="detail-hint">해당 조합에서 등장한 추천·비추천 스타일 목록입니다.</p>
+
+      <div class="matrix-detail-cols">
+        <div class="matrix-detail-col">
+          <h4 style="color:#34c759;">추천 스타일</h4>
+          <div class="stats-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="no-sort">스타일명</th>
+                  <th class="no-sort">코드</th>
+                  <th class="no-sort">등장 횟수</th>
+                </tr>
+              </thead>
+              <tbody id="matrix-detail-rec-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="matrix-detail-col">
+          <h4 style="color:#ff3b30;">비추천 스타일</h4>
+          <div class="stats-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="no-sort">스타일명</th>
+                  <th class="no-sort">코드</th>
+                  <th class="no-sort">등장 횟수</th>
+                </tr>
+              </thead>
+              <tbody id="matrix-detail-worst-tbody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 

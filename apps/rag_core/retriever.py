@@ -55,6 +55,24 @@ def get_vectorstore() -> Chroma:
     )
 
 
+def get_covered_style_codes() -> set[str]:
+    """
+    ChromaDB에 실제 데이터가 있는 style_code 집합을 반환한다.
+
+    각 문서의 style_groups 메타데이터(쉼표 구분)를 파싱해 수집한다.
+    """
+    vs = get_vectorstore()
+    result = vs.get(include=["metadatas"])
+    covered: set[str] = set()
+    for meta in result["metadatas"]:
+        groups = meta.get("style_groups", "") or ""
+        for code in groups.split(","):
+            code = code.strip()
+            if code:
+                covered.add(code)
+    return covered
+
+
 def build_hair_fallback_filters(
     *,
     category: str,
@@ -165,8 +183,39 @@ def search_with_fallback(
         query=query,
         documents=[],
         retrieved_count=0,
-        fallback_stage=None,
+        fallback_stage="none",
         used_filter={},
+    )
+
+
+def _retrieve_docs_with_vectorstore(
+    retrieval_query: RetrievalQuery,
+    vectorstore,
+) -> RetrievalResult:
+    """이미 생성된 vectorstore를 받아 단건 검색을 수행하는 내부 함수."""
+
+    category = retrieval_query.category or "hair"
+    k = retrieval_query.k or DEFAULT_RETRIEVAL_K
+
+    if category != "hair":
+        raise ValueError(
+            f"현재 retrieve_docs는 category='hair'만 지원합니다. "
+            f"입력된 category: {category}"
+        )
+
+    fallback_filters = build_hair_fallback_filters(
+        category=category,
+        gender=retrieval_query.gender,
+        face_shape=retrieval_query.face_shape,
+        face_proportion=retrieval_query.face_proportion,
+        style_code=retrieval_query.style_code,
+    )
+
+    return search_with_fallback(
+        vectorstore=vectorstore,
+        query=retrieval_query.query,
+        fallback_filters=fallback_filters,
+        k=k,
     )
 
 
@@ -229,31 +278,24 @@ def retrieve_docs(
             k=k or DEFAULT_RETRIEVAL_K,
         )
 
-    category = retrieval_query.category or "hair"
-    k = retrieval_query.k or DEFAULT_RETRIEVAL_K
+    vectorstore = get_vectorstore()
+    return _retrieve_docs_with_vectorstore(retrieval_query, vectorstore)
 
-    if category != "hair":
-        raise ValueError(
-            f"현재 retrieve_docs는 category='hair'만 지원합니다. "
-            f"입력된 category: {category}"
-        )
+
+def retrieve_many_docs(
+    retrieval_queries: list[RetrievalQuery],
+) -> list[RetrievalResult]:
+    """
+    여러 RetrievalQuery를 하나의 vectorstore 연결로 일괄 검색한다.
+
+    get_vectorstore()를 한 번만 호출하므로 반복 호출보다 빠르다.
+    """
 
     vectorstore = get_vectorstore()
-
-    fallback_filters = build_hair_fallback_filters(
-        category=category,
-        gender=retrieval_query.gender,
-        face_shape=retrieval_query.face_shape,
-        face_proportion=retrieval_query.face_proportion,
-        style_code=retrieval_query.style_code,
-    )
-
-    return search_with_fallback(
-        vectorstore=vectorstore,
-        query=retrieval_query.query,
-        fallback_filters=fallback_filters,
-        k=k,
-    )
+    return [
+        _retrieve_docs_with_vectorstore(q, vectorstore)
+        for q in retrieval_queries
+    ]
 
 def convert_to_chroma_filter(metadata_filter: dict[str, Any]) -> dict[str, Any] | None:
     """
