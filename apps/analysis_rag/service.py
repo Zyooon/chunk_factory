@@ -2,9 +2,28 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.rag_core.retriever import get_covered_style_codes, retrieve_many_docs
+from apps.rag_core.retriever import retrieve_many_docs
 from apps.rag_core.generator import generate_analysis_answer
-from apps.rag_core.schemas import AnalysisGenerationInput, RetrievalQuery
+from apps.rag_core.schemas import AnalysisGenerationInput, RetrievalQuery, RetrievalResult
+
+
+def _result_contains_style_code(
+    retrieval_result: RetrievalResult,
+    style_code: str,
+) -> bool:
+    """
+    검색 결과 안에 요청한 style_code 문서가 실제로 포함되어 있는지 확인한다.
+
+    fallback 검색은 후순위 단계에서 category 또는 face_shape만으로도 결과를
+    반환할 수 있으므로, retrieved_count만으로는 해당 스타일의 RAG 데이터가
+    있다고 판단하기 어렵다.
+    """
+    for document in retrieval_result.documents:
+        metadata = document.metadata or {}
+        if metadata.get("style_code") == style_code:
+            return True
+
+    return False
 
 
 def generate_analysis_result(
@@ -15,8 +34,6 @@ def generate_analysis_result(
 ) -> dict[str, Any]:
     if not recommended_hair_styles:
         raise ValueError("recommended_hair_styles는 비어 있을 수 없습니다.")
-
-    covered_codes = get_covered_style_codes()
 
     retrieval_queries: list[RetrievalQuery] = []
     style_infos: list[dict[str, Any]] = []
@@ -53,20 +70,31 @@ def generate_analysis_result(
     total_retrieved_count = sum(r.retrieved_count for r in retrieval_results)
     fallback_stages = [r.fallback_stage for r in retrieval_results]
 
+    pairs_with_rag_flag = [
+        (
+            si,
+            r,
+            _result_contains_style_code(r, si["style_code"]),
+        )
+        for si, r in paired
+    ]
+
     hair_results: list[dict[str, Any]] = [
         {
             "style_name": si["style_name"],
             "style_code": si["style_code"],
             "retrieved_count": r.retrieved_count,
             "fallback_stage": r.fallback_stage,
-            "has_rag_data": si["style_code"] in covered_codes,
+            "has_rag_data": has_rag_data,
         }
-        for si, r in paired
+        for si, r, has_rag_data in pairs_with_rag_flag
     ]
 
-    # ChromaDB 데이터가 있는 스타일만 LLM 분석에 포함
+    # 요청한 style_code의 문서가 실제 검색 결과에 포함된 경우만 LLM 분석에 포함
     covered_pairs = [
-        (si, r) for si, r in paired if si["style_code"] in covered_codes
+        (si, r)
+        for si, r, has_rag_data in pairs_with_rag_flag
+        if has_rag_data
     ]
 
     if covered_pairs:
