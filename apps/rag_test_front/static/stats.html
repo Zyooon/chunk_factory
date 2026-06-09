@@ -28,7 +28,7 @@
     .back-link:hover { text-decoration: underline; }
 
     .stats-main {
-      max-width: 1000px;
+      max-width: 1200px;
       margin: 16px auto;
       padding: 0 14px;
       display: flex;
@@ -81,7 +81,7 @@
       gap: 8px;
       align-items: center;
       flex-wrap: wrap;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .filter-row label {
@@ -97,6 +97,17 @@
       font-size: 0.82rem;
       background: #fff;
       cursor: pointer;
+    }
+
+    /* 현재 조건 라벨 */
+    .condition-label {
+      font-size: 0.78rem;
+      color: #636366;
+      background: #f2f2f7;
+      border-radius: 6px;
+      padding: 5px 10px;
+      margin-bottom: 10px;
+      font-weight: 500;
     }
 
     /* 테이블 */
@@ -125,12 +136,16 @@
     }
 
     thead th:hover { background: #e5e5ea; }
+    thead th.no-sort { cursor: default; }
+    thead th.no-sort:hover { background: #f2f2f7; }
 
     thead th.sort-asc::after  { content: " ▲"; color: #007aff; }
     thead th.sort-desc::after { content: " ▼"; color: #007aff; }
 
     tbody tr:nth-child(even) { background: #f9f9fb; }
     tbody tr:hover { background: #f0f4ff; }
+    tbody tr.selected-row { background: #dbeeff !important; }
+    tbody tr.clickable { cursor: pointer; }
 
     tbody td {
       padding: 7px 12px;
@@ -190,6 +205,97 @@
 
     #loading-msg { color: #636366; font-size: 0.85rem; padding: 20px; }
     #stats-error { color: #c0392b; padding: 10px; }
+
+    /* 스타일 상세 패널 */
+    .detail-hint {
+      font-size: 0.75rem;
+      color: #8e8e93;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+
+    .detail-close-btn {
+      float: right;
+      background: none;
+      border: 1px solid #d1d1d6;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 0.75rem;
+      color: #636366;
+      cursor: pointer;
+    }
+    .detail-close-btn:hover { background: #f2f2f7; }
+
+    .rec-count  { color: #34c759; font-weight: 600; }
+    .wrst-count { color: #ff3b30; font-weight: 600; }
+
+    /* 커버리지 요약 카드 */
+    .coverage-summary {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .cov-card {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      background: #f9f9fb;
+      border: 1px solid #e5e5ea;
+      border-radius: 10px;
+      padding: 10px 16px;
+      min-width: 110px;
+    }
+
+    .cov-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1c1c1e;
+    }
+
+    .cov-label {
+      font-size: 0.7rem;
+      color: #636366;
+    }
+
+    .cov-card.danger  .cov-value { color: #ff3b30; }
+    .cov-card.warning .cov-value { color: #ff9500; }
+    .cov-card.yellow  .cov-value { color: #b8860b; }
+    .cov-card.good    .cov-value { color: #34c759; }
+
+    /* 상태 배지 */
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .status-badge.s-none         { background: #3a3a3c; color: #fff; }
+    .status-badge.s-very-poor    { background: #ff3b30; color: #fff; }
+    .status-badge.s-poor         { background: #ff9500; color: #fff; }
+    .status-badge.s-biased       { background: #ffd60a; color: #3a3a3c; }
+    .status-badge.s-normal       { background: #34c759; color: #fff; }
+
+    /* 체크박스 라벨 (stats 전용 — style.css의 .checkbox-label 재사용 가능) */
+    .coverage-filter-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .coverage-filter-row label {
+      font-size: 0.82rem;
+      color: #1c1c1e;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
   </style>
 </head>
 <body>
@@ -201,12 +307,13 @@
 
   <div class="stats-main">
 
+    <!-- ① 데이터 요약 -->
     <div class="stats-card">
       <h2>데이터 요약</h2>
       <div class="summary-row">
         <div class="summary-item">
           <span class="summary-value" id="sum-rows">-</span>
-          <span class="summary-label">전체 분석 기록 (행 수)</span>
+          <span class="summary-label">전체 매핑 행 수</span>
         </div>
         <div class="summary-item">
           <span class="summary-value" id="sum-styles">-</span>
@@ -214,23 +321,38 @@
         </div>
       </div>
       <p style="font-size:0.72rem;color:#aeaeb2;">
-        ※ face_shape='남성' 오류 row(3건)는 집계에서 제외됨<br>
         ※ style_code가 없는 스타일은 DB에만 존재하는 항목 (매핑 미등록)
       </p>
     </div>
 
+    <!-- ② 스타일별 추천 / 비추천 등장 횟수 -->
     <div class="stats-card">
       <h2>스타일별 추천 / 비추천 등장 횟수</h2>
 
+      <!-- 필터 -->
       <div class="filter-row">
-        <label for="gender-filter">성별 필터:</label>
+        <label for="gender-filter">성별:</label>
         <select id="gender-filter">
           <option value="all">전체</option>
           <option value="남성">남성</option>
           <option value="여성">여성</option>
         </select>
-        <span style="font-size:0.72rem;color:#aeaeb2;">추천 등장 수 기준 내림차순 기본 정렬</span>
+
+        <label for="face-shape-filter">얼굴형:</label>
+        <select id="face-shape-filter">
+          <option value="all">전체</option>
+        </select>
+
+        <label for="face-proportion-filter">삼정 비율:</label>
+        <select id="face-proportion-filter">
+          <option value="all">전체</option>
+        </select>
+
+        <span style="font-size:0.72rem;color:#aeaeb2;">행 클릭 → 조건별 상세</span>
       </div>
+
+      <!-- 현재 조건 표시 -->
+      <div class="condition-label" id="condition-label">현재 조건: 전체 성별 / 얼굴형 전체 / 삼정 전체</div>
 
       <div id="loading-msg">데이터 불러오는 중...</div>
       <div id="stats-error" class="hidden"></div>
@@ -248,6 +370,82 @@
             </tr>
           </thead>
           <tbody id="stats-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ③ 스타일별 조건 커버리지 상세 (선택 시 표시) -->
+    <div id="style-detail-panel" class="stats-card hidden">
+      <h2 id="detail-title">상세</h2>
+      <button class="detail-close-btn" id="detail-close-btn">닫기 ✕</button>
+      <div class="condition-label" id="detail-gender-label"></div>
+      <p class="detail-hint">이 상세는 선택한 스타일이 어떤 얼굴형·삼정 조건에서 추천/비추천으로 등장했는지 보여줍니다. 얼굴형·삼정 필터와 무관하게 전체 분포를 표시합니다.</p>
+      <div class="stats-table-wrap">
+        <table id="detail-table">
+          <thead>
+            <tr>
+              <th class="no-sort">성별</th>
+              <th class="no-sort">얼굴형</th>
+              <th class="no-sort">삼정 비율</th>
+              <th class="no-sort">추천 등장</th>
+              <th class="no-sort">비추천 등장</th>
+              <th class="no-sort">전체 등장</th>
+            </tr>
+          </thead>
+          <tbody id="detail-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ④⑤ 얼굴형 · 삼정 조합별 데이터 현황 -->
+    <div class="stats-card hidden" id="coverage-card">
+      <h2>얼굴형 · 삼정 조합별 데이터 현황</h2>
+
+      <!-- 요약 카드 4개 -->
+      <div class="coverage-summary">
+        <div class="cov-card">
+          <span class="cov-value" id="cov-total">-</span>
+          <span class="cov-label">전체 조합 수</span>
+        </div>
+        <div class="cov-card danger">
+          <span class="cov-value" id="cov-no-data">-</span>
+          <span class="cov-label">데이터 없음</span>
+        </div>
+        <div class="cov-card warning">
+          <span class="cov-value" id="cov-insufficient">-</span>
+          <span class="cov-label">부족 / 매우 부족</span>
+        </div>
+        <div class="cov-card yellow">
+          <span class="cov-value" id="cov-biased">-</span>
+          <span class="cov-label">편향 조합</span>
+        </div>
+      </div>
+
+      <!-- 부족 조합 필터 체크박스 -->
+      <div class="coverage-filter-row">
+        <label>
+          <input type="checkbox" id="only-insufficient-cb">
+          부족한 조합만 보기
+        </label>
+      </div>
+
+      <!-- 커버리지 테이블 -->
+      <div class="stats-table-wrap">
+        <table id="coverage-table">
+          <thead>
+            <tr>
+              <th class="no-sort">성별</th>
+              <th class="no-sort">얼굴형</th>
+              <th class="no-sort">삼정 비율</th>
+              <th class="no-sort">문서 수</th>
+              <th class="no-sort">추천 등장</th>
+              <th class="no-sort">비추천 등장</th>
+              <th class="no-sort">추천 스타일 수</th>
+              <th class="no-sort">비추천 스타일 수</th>
+              <th class="no-sort">부족 상태</th>
+            </tr>
+          </thead>
+          <tbody id="coverage-tbody"></tbody>
         </table>
       </div>
     </div>

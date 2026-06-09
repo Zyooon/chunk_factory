@@ -157,6 +157,87 @@ def _query_hair_stats() -> dict:
     }
 
 
+def _query_hair_stats_raw() -> dict:
+    """조건별 원시 매핑 데이터를 반환 — 프론트에서 다양한 집계에 사용."""
+    with _get_db() as conn:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                fc.gender,
+                fc.face_shape,
+                fc.face_proportion,
+                hs.style_name,
+                hs.style_code,
+                csm.is_recommended
+            FROM condition_style_mapping csm
+            JOIN face_conditions fc ON csm.condition_id = fc.id
+            JOIN hair_styles     hs ON csm.style_id     = hs.style_code
+            ORDER BY fc.gender, fc.face_shape, fc.face_proportion, hs.style_name
+            """
+        )
+        raw_rows = cur.fetchall()
+
+        cur.execute(
+            """
+            SELECT gender, face_shape, face_proportion, COUNT(*) AS doc_count
+            FROM face_conditions
+            GROUP BY gender, face_shape, face_proportion
+            ORDER BY gender, face_shape, face_proportion
+            """
+        )
+        cond_rows = cur.fetchall()
+
+        cur.execute(
+            "SELECT DISTINCT face_shape FROM face_conditions ORDER BY face_shape"
+        )
+        face_shapes = [r[0] for r in cur.fetchall()]
+
+        cur.execute(
+            "SELECT DISTINCT face_proportion FROM face_conditions ORDER BY face_proportion"
+        )
+        face_proportions = [r[0] for r in cur.fetchall()]
+
+        cur.execute("SELECT COUNT(*) FROM condition_style_mapping")
+        total_rows = cur.fetchone()[0]
+
+    items = [
+        {
+            "gender":          r["gender"],
+            "face_shape":      r["face_shape"],
+            "face_proportion": r["face_proportion"],
+            "style_name":      r["style_name"],
+            "style_code":      r["style_code"],
+            "is_recommended":  bool(r["is_recommended"]),
+        }
+        for r in raw_rows
+    ]
+
+    condition_counts = [
+        {
+            "gender":          r["gender"],
+            "face_shape":      r["face_shape"],
+            "face_proportion": r["face_proportion"],
+            "doc_count":       r["doc_count"],
+        }
+        for r in cond_rows
+    ]
+
+    style_set = {it["style_code"] or it["style_name"] for it in items}
+
+    return {
+        "items":            items,
+        "condition_counts": condition_counts,
+        "face_shapes":      face_shapes,
+        "face_proportions": face_proportions,
+        "summary": {
+            "total_rows":   total_rows,
+            "total_styles": len(style_set),
+        },
+    }
+
+
 class _RAGTestHandler(BaseHTTPRequestHandler):
     """GET(정적 파일 + stats API) + POST(/api/*) 요청을 처리하는 핸들러."""
 
@@ -173,6 +254,8 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
             self._serve_static("stats.html")
         elif path == "/api/hair-style-stats":
             self._handle_hair_stats()
+        elif path == "/api/hair-stats-raw":
+            self._handle_hair_stats_raw()
         elif path.startswith("/static/"):
             self._serve_static(path[len("/static/"):])
         else:
@@ -244,6 +327,13 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
     def _handle_hair_stats(self) -> None:
         try:
             result = _query_hair_stats()
+            self._send_json(result)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=500)
+
+    def _handle_hair_stats_raw(self) -> None:
+        try:
+            result = _query_hair_stats_raw()
             self._send_json(result)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
