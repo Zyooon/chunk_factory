@@ -7,8 +7,10 @@ from apps.chatbot_rag.memory import (
     extract_simple_user_preferences,
     merge_user_profile,
 )
+from apps.chatbot_rag.makeup_catalog import find_makeup_style_in_message
 from apps.chatbot_rag.prompts import (
     CATEGORY_HAIR,
+    CATEGORY_MAKEUP,
     CLARIFICATION_OPTIONS,
     GREETING_MESSAGE,
     INTENT_GENERAL_FOLLOWUP,
@@ -23,14 +25,14 @@ from apps.chatbot_rag.prompts import (
     NOISE_MESSAGE,
     SMALLTALK_MESSAGE,
     build_clarification_message,
+    detect_question_category,
     get_intent_by_keyword,
 )
-
 from apps.chatbot_rag.state import ChatbotState
+from apps.chatbot_rag.style_catalog import find_hair_style_in_message
 from apps.rag_core.generator import generate_chat_answer
 from apps.rag_core.retriever import retrieve_docs
 from apps.rag_core.schemas import ChatGenerationInput, RetrievalResult
-from apps.chatbot_rag.style_catalog import find_hair_style_in_message
 
 
 def check_analysis_exists(state: ChatbotState) -> ChatbotState:
@@ -69,33 +71,6 @@ def check_analysis_exists(state: ChatbotState) -> ChatbotState:
     return state
 
 
-def classify_intent(state: ChatbotState) -> ChatbotState:
-    """
-    사용자 질문의 의도를 keyword 기반으로 분류한다.
-
-    현재 1차 구현은 hair chatbot이므로 category는 hair로 고정한다.
-    """
-
-    if state.get("error") == "missing_analysis":
-        return state
-
-    user_message = state.get("user_message", "")
-
-    intent = get_intent_by_keyword(user_message)
-
-    state["intent"] = intent
-    state["category"] = CATEGORY_HAIR
-
-    if intent == INTENT_UNCLEAR:
-        state["needs_clarification"] = True
-        state["clarification_options"] = CLARIFICATION_OPTIONS
-    else:
-        state["needs_clarification"] = False
-        state["clarification_options"] = []
-
-    return state
-
-
 def ask_clarification(state: ChatbotState) -> ChatbotState:
     """
     질문 의도가 불명확할 때 객관식 재질문을 반환한다.
@@ -116,15 +91,10 @@ def ask_clarification(state: ChatbotState) -> ChatbotState:
 
     return state
 
+
 def generate_non_rag_answer(state: ChatbotState) -> ChatbotState:
     """
     RAG 검색이나 Gemini 호출이 필요 없는 입력에 대해 고정 응답을 반환한다.
-
-    예:
-    - greeting: 인사
-    - smalltalk: 간단 반응
-    - irrelevant: 헤어 상담 범위 밖 질문
-    - noise: 의미 없는 입력
     """
 
     intent = state.get("intent")
@@ -164,6 +134,7 @@ def generate_non_rag_answer(state: ChatbotState) -> ChatbotState:
 def _find_style_code_from_message(
     user_message: str,
     previous_recommendations: list[dict[str, Any]],
+    category: str | None = None,
 ) -> str | None:
     """
     사용자 질문에 이전 추천 스타일명이 포함되어 있으면 해당 style_code를 찾는다.
@@ -173,6 +144,9 @@ def _find_style_code_from_message(
     """
 
     for recommendation in previous_recommendations:
+        if category and recommendation.get("category") not in {category, None}:
+            continue
+
         style_name = recommendation.get("style_name")
         style_code = recommendation.get("style_code")
 
@@ -180,17 +154,112 @@ def _find_style_code_from_message(
             continue
 
         if style_name in user_message:
-            return style_code
+            return str(style_code)
 
     return None
 
 
+def _is_recommended_style(
+    detected_style: dict[str, str] | None,
+    previous_recommendations: list[dict[str, Any]],
+    category: str | None = None,
+) -> bool:
+    """
+    감지된 스타일이 이전 추천 목록에 포함되어 있는지 확인한다.
+    """
+
+    if not detected_style:
+        return False
+
+    detected_style_code = detected_style.get("style_code")
+    detected_style_name = detected_style.get("style_name")
+
+    for recommendation in previous_recommendations:
+        if category and recommendation.get("category") not in {category, None}:
+            continue
+
+        if detected_style_code and recommendation.get("style_code") == detected_style_code:
+            return True
+
+        if detected_style_name and recommendation.get("style_name") == detected_style_name:
+            return True
+
+    return False
+
+
+def classify_intent(state: ChatbotState) -> ChatbotState:
+    """
+    사용자 질문의 의도를 분류한다.
+
+    메시지 키워드와 감지된 스타일을 바탕으로 hair/makeup category를 함께 결정한다.
+    """
+
+    if state.get("error") == "missing_analysis":
+        return state
+
+    user_message = state.get("user_message", "")
+    gender = state.get("gender")
+    personal_color = state.get("personal_color")
+    previous_recommendations = state.get("previous_recommendations") or []
+
+    intent = get_intent_by_keyword(user_message)
+    category = detect_question_category(user_message)
+
+    detected_hair_style = find_hair_style_in_message(
+        message=user_message,
+        gender=gender,
+    )
+    detected_makeup_style = find_makeup_style_in_message(
+        message=user_message,
+        personal_color=personal_color,
+    )
+
+    if detected_makeup_style:
+        category = CATEGORY_MAKEUP
+        detected_style = detected_makeup_style
+    elif detected_hair_style:
+        category = CATEGORY_HAIR
+        detected_style = detected_hair_style
+    else:
+        detected_style = None
+
+    detected_style_is_recommended = _is_recommended_style(
+        detected_style=detected_style,
+        previous_recommendations=previous_recommendations,
+        category=category,
+    )
+
+    # 추천 목록 밖 스타일이라도 사용자가 명시적으로 물어본 경우 상담으로 처리한다.
+    if detected_style and intent in {
+        INTENT_UNCLEAR,
+        INTENT_GREETING,
+        INTENT_SMALLTALK,
+        INTENT_IRRELEVANT,
+        INTENT_NOISE,
+    }:
+        intent = INTENT_GENERAL_FOLLOWUP
+
+    state["intent"] = intent
+    state["category"] = category
+    state["detected_style"] = detected_style
+    state["detected_style_is_recommended"] = detected_style_is_recommended
+
+    if intent == INTENT_UNCLEAR:
+        state["needs_clarification"] = True
+        state["clarification_options"] = CLARIFICATION_OPTIONS
+    else:
+        state["needs_clarification"] = False
+        state["clarification_options"] = []
+
+    return state
+
+
 def retrieve_context(state: ChatbotState) -> ChatbotState:
     """
-    현재 질문과 사용자 진단 정보를 바탕으로 ChromaDB에서 hair 문서를 검색한다.
+    현재 질문과 사용자 진단 정보를 바탕으로 ChromaDB에서 문서를 검색한다.
 
-    검색 실패는 치명적인 오류로 보지 않는다.
-    검색 결과가 없어도 generate_answer_node에서 이전 분석 결과 기반으로 답변할 수 있다.
+    category가 hair이면 얼굴형/삼정 기준으로,
+    makeup이면 퍼스널컬러 기준으로 검색한다.
     """
 
     if state.get("error") == "missing_analysis":
@@ -200,11 +269,12 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
         return state
 
     user_message = state.get("user_message", "")
+    category = state.get("category") or CATEGORY_HAIR
     gender = state.get("gender")
     face_shape = state.get("face_shape")
     face_proportion = state.get("face_proportion")
+    personal_color = state.get("personal_color")
     previous_recommendations = state.get("previous_recommendations") or []
-
     detected_style = state.get("detected_style")
 
     if detected_style:
@@ -213,32 +283,53 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
         style_code = _find_style_code_from_message(
             user_message=user_message,
             previous_recommendations=previous_recommendations,
+            category=category,
         )
 
     detected_style_name = ""
+    makeup_group = None
     if detected_style:
         detected_style_name = detected_style.get("style_name", "")
+        makeup_group = detected_style.get("makeup_group")
 
-    query = (
-        f"{gender or ''} {face_shape or ''} 얼굴형 "
-        f"{face_proportion or ''} 삼정 비율 "
-        f"{detected_style_name} "
-        f"{user_message}"
-    ).strip()
+    if category == CATEGORY_MAKEUP:
+        query = (
+            f"{gender or ''} {personal_color or ''} 퍼스널컬러 "
+            f"{detected_style_name} "
+            f"{user_message}"
+        ).strip()
+        retrieve_kwargs = {
+            "query": query,
+            "category": CATEGORY_MAKEUP,
+            "gender": gender,
+            "personal_color": personal_color,
+            "makeup_group": makeup_group,
+            "style_code": style_code,
+            "k": 3,
+        }
+    else:
+        query = (
+            f"{gender or ''} {face_shape or ''} 얼굴형 "
+            f"{face_proportion or ''} 삼정 비율 "
+            f"{detected_style_name} "
+            f"{user_message}"
+        ).strip()
+        retrieve_kwargs = {
+            "query": query,
+            "category": CATEGORY_HAIR,
+            "gender": gender,
+            "face_shape": face_shape,
+            "face_proportion": face_proportion,
+            "style_code": style_code,
+            "k": 3,
+        }
 
     try:
-        retrieval_result = retrieve_docs(
-            query=query,
-            category=CATEGORY_HAIR,
-            gender=gender,
-            face_shape=face_shape,
-            face_proportion=face_proportion,
-            style_code=style_code,
-            k=3,
-        )
+        retrieval_result = retrieve_docs(**retrieve_kwargs)
 
         state["retrieval_result"] = retrieval_result
         state["retrieval_info"] = {
+            "category": category,
             "retrieved_count": retrieval_result.retrieved_count,
             "fallback_stage": retrieval_result.fallback_stage
             if retrieval_result.fallback_stage is not None
@@ -255,6 +346,7 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             used_filter={},
         )
         state["retrieval_info"] = {
+            "category": category,
             "retrieved_count": 0,
             "fallback_stage": "none",
         }
@@ -290,12 +382,14 @@ def generate_answer_node(state: ChatbotState) -> ChatbotState:
         gender=state.get("gender", ""),
         face_shape=state.get("face_shape", ""),
         face_proportion=state.get("face_proportion", ""),
+        personal_color=state.get("personal_color"),
         previous_analysis=state.get("previous_analysis"),
         previous_recommendations=state.get("previous_recommendations") or [],
         user_profile=state.get("user_profile") or {},
         chat_history=state.get("chat_history") or [],
         retrieval_result=retrieval_result,
         intent=state.get("intent"),
+        category=state.get("category"),
         detected_style=state.get("detected_style"),
         detected_style_is_recommended=state.get(
             "detected_style_is_recommended",
@@ -308,6 +402,7 @@ def generate_answer_node(state: ChatbotState) -> ChatbotState:
     state["answer"] = generation_result.answer
     state["retrieval_result"] = generation_result.retrieval_result
     state["retrieval_info"] = {
+        "category": state.get("category"),
         "retrieved_count": generation_result.retrieval_result.retrieved_count,
         "fallback_stage": generation_result.retrieval_result.fallback_stage
         if generation_result.retrieval_result.fallback_stage is not None
@@ -346,78 +441,3 @@ def update_memory(state: ChatbotState) -> ChatbotState:
     state["updated_user_profile"] = updated_user_profile
 
     return state
-
-def classify_intent(state: ChatbotState) -> ChatbotState:
-    """
-    사용자 질문의 의도를 분류한다.
-
-    1차는 keyword 기반으로 빠르게 분류한다.
-    사용자가 전체 헤어스타일 목록 중 특정 스타일을 물어보면,
-    추천 목록 밖 스타일이라도 hair follow-up으로 처리한다.
-    """
-
-    if state.get("error") == "missing_analysis":
-        return state
-
-    user_message = state.get("user_message", "")
-    gender = state.get("gender")
-    previous_recommendations = state.get("previous_recommendations") or []
-
-    intent = get_intent_by_keyword(user_message)
-
-    detected_style = find_hair_style_in_message(
-        message=user_message,
-        gender=gender,
-    )
-
-    detected_style_is_recommended = _is_recommended_style(
-        detected_style=detected_style,
-        previous_recommendations=previous_recommendations,
-    )
-
-    # 추천 목록 밖 스타일이라도 사용자가 명시적으로 물어본 경우 hair 상담으로 처리한다.
-    if detected_style and intent in {
-        INTENT_UNCLEAR,
-        INTENT_GREETING,
-        INTENT_SMALLTALK,
-        INTENT_IRRELEVANT,
-        INTENT_NOISE,
-    }:
-        intent = INTENT_GENERAL_FOLLOWUP
-
-    state["intent"] = intent
-    state["category"] = CATEGORY_HAIR
-    state["detected_style"] = detected_style
-    state["detected_style_is_recommended"] = detected_style_is_recommended
-
-    if intent == INTENT_UNCLEAR:
-        state["needs_clarification"] = True
-        state["clarification_options"] = CLARIFICATION_OPTIONS
-    else:
-        state["needs_clarification"] = False
-        state["clarification_options"] = []
-
-    return state
-
-def _is_recommended_style(
-    detected_style: dict[str, str] | None,
-    previous_recommendations: list[dict[str, Any]],
-) -> bool:
-    """
-    감지된 스타일이 이전 추천 목록에 포함되어 있는지 확인한다.
-    """
-
-    if not detected_style:
-        return False
-
-    detected_style_code = detected_style.get("style_code")
-    detected_style_name = detected_style.get("style_name")
-
-    for recommendation in previous_recommendations:
-        if detected_style_code and recommendation.get("style_code") == detected_style_code:
-            return True
-
-        if detected_style_name and recommendation.get("style_name") == detected_style_name:
-            return True
-
-    return False
