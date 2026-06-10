@@ -50,6 +50,7 @@ _CONTENT_TYPES: dict[str, str] = {
     ".js": "application/javascript; charset=utf-8",
 }
 
+
 def _get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_DB_PATH))
     conn.row_factory = sqlite3.Row
@@ -194,7 +195,7 @@ def _query_hair_style_map() -> dict:
 
 
 def _query_rag_coverage() -> dict:
-    """ChromaDB의 style_groups 메타데이터에 등장하는 style_code 목록을 반환한다."""
+    """ChromaDB metadata에 등장하는 style_code 목록을 반환한다."""
     from apps.rag_core.retriever import get_covered_style_codes
     covered = get_covered_style_codes()
     return {"covered_codes": sorted(covered)}
@@ -249,7 +250,9 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
                 gender=data["gender"],
                 face_shape=data["face_shape"],
                 face_proportion=data["face_proportion"],
+                personal_color=data.get("personal_color"),
                 recommended_hair_styles=data["recommended_hair_styles"],
+                recommended_makeup_styles=data.get("recommended_makeup_styles"),
             )
             self._send_json(result)
         except KeyError as exc:
@@ -264,6 +267,7 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
                 gender=data["gender"],
                 face_shape=data["face_shape"],
                 face_proportion=data["face_proportion"],
+                personal_color=data.get("personal_color"),
                 previous_analysis=data.get("previous_analysis"),
                 previous_recommendations=data.get("previous_recommendations"),
                 user_profile=data.get("user_profile"),
