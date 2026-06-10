@@ -43,7 +43,7 @@ def route_after_intent(state: ChatbotState) -> str:
 
     - non-RAG intent는 고정 응답으로 보낸다.
     - unclear는 객관식 재질문으로 보낸다.
-    - 나머지 hair 상담 intent만 RAG 검색으로 보낸다.
+    - 나머지 상담 intent는 RAG 검색으로 보낸다.
     """
 
     intent = state.get("intent")
@@ -89,14 +89,14 @@ def build_chatbot_graph():
     )
 
     graph.add_conditional_edges(
-    "classify_intent",
-    route_after_intent,
-    {
-        "ask_clarification": "ask_clarification",
-        "generate_non_rag_answer": "generate_non_rag_answer",
-        "retrieve_context": "retrieve_context",
-    },
-)
+        "classify_intent",
+        route_after_intent,
+        {
+            "ask_clarification": "ask_clarification",
+            "generate_non_rag_answer": "generate_non_rag_answer",
+            "retrieve_context": "retrieve_context",
+        },
+    )
 
     graph.add_edge("ask_clarification", "update_memory")
     graph.add_edge("generate_non_rag_answer", "update_memory")
@@ -113,6 +113,7 @@ def run_chatbot(
     gender: str,
     face_shape: str,
     face_proportion: str,
+    personal_color: str | None = None,
     previous_analysis: str | dict[str, Any] | None = None,
     previous_recommendations: list[dict[str, Any]] | None = None,
     user_profile: dict[str, Any] | None = None,
@@ -131,6 +132,7 @@ def run_chatbot(
         "gender": gender,
         "face_shape": face_shape,
         "face_proportion": face_proportion,
+        "personal_color": personal_color or "",
         "previous_analysis": previous_analysis,
         "previous_recommendations": previous_recommendations or [],
         "user_profile": user_profile or {},
@@ -138,7 +140,7 @@ def run_chatbot(
     }
 
     result = graph.invoke(initial_state)
-    
+
     return {
         "answer": result.get("answer", ""),
         "intent": result.get("intent"),
