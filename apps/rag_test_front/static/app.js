@@ -6,16 +6,42 @@ const appState = {
   ragCoverage: new Set(),   // ChromaDB에 데이터가 있는 style_code 집합
 };
 
+const MAKEUP_STYLES_BY_PERSONAL_COLOR = {
+  '봄웜': [
+    { category: 'makeup', style_name: '피치 메이크업', style_code: 'mk-sp-peach', makeup_group: 'peach' },
+    { category: 'makeup', style_name: '코랄 메이크업', style_code: 'mk-sp-coral', makeup_group: 'coral' },
+    { category: 'makeup', style_name: '주시 메이크업', style_code: 'mk-sp-juicy', makeup_group: 'juicy' },
+  ],
+  '여름쿨': [
+    { category: 'makeup', style_name: '듀이 메이크업', style_code: 'mk-su-dewy', makeup_group: 'dewy' },
+    { category: 'makeup', style_name: '내추럴 메이크업', style_code: 'mk-su-natural', makeup_group: 'natural' },
+    { category: 'makeup', style_name: '로즈 메이크업', style_code: 'mk-su-rose', makeup_group: 'rose' },
+  ],
+  '가을웜': [
+    { category: 'makeup', style_name: '브라운 메이크업', style_code: 'mk-au-brown', makeup_group: 'brown' },
+    { category: 'makeup', style_name: '시크 메이크업', style_code: 'mk-au-chic', makeup_group: 'chic' },
+    { category: 'makeup', style_name: '오피스 메이크업', style_code: 'mk-au-office', makeup_group: 'office' },
+  ],
+  '겨울쿨': [
+    { category: 'makeup', style_name: '버건디 메이크업', style_code: 'mk-wi-burgundy', makeup_group: 'burgundy' },
+    { category: 'makeup', style_name: '글램 메이크업', style_code: 'mk-wi-glam', makeup_group: 'glam' },
+    { category: 'makeup', style_name: '레드 메이크업', style_code: 'mk-wi-red', makeup_group: 'red' },
+  ],
+};
+
 // ── DOM 헬퍼 ─────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 
 // ── 초기화 ───────────────────────────────────────────────────────────────────
 async function init() {
   setGender('남성');
+  $('personal-color').value = '봄웜';
+  renderMakeupOptions();
   await loadRagCoverage();
 
   $('btn-sample-male').addEventListener('click', fillSampleMale);
   $('btn-sample-female').addEventListener('click', fillSampleFemale);
+  $('personal-color').addEventListener('change', renderMakeupOptions);
   $('btn-load-options').addEventListener('click', handleLoadOptions);
   $('btn-analyze').addEventListener('click', handleAnalyze);
   $('btn-chat').addEventListener('click', handleChat);
@@ -39,6 +65,8 @@ function fillSampleMale() {
   setGender('남성');
   $('face-shape').value = '둥근형';
   $('face-proportion').value = '균형';
+  $('personal-color').value = '봄웜';
+  renderMakeupOptions();
   handleLoadOptions();
 }
 
@@ -46,6 +74,8 @@ function fillSampleFemale() {
   setGender('여성');
   $('face-shape').value = '둥근형';
   $('face-proportion').value = '균형';
+  $('personal-color').value = '여름쿨';
+  renderMakeupOptions();
   handleLoadOptions();
 }
 
@@ -58,6 +88,33 @@ function setGender(value) {
 function getGender() {
   const r = document.querySelector('input[name="gender"]:checked');
   return r ? r.value : '';
+}
+
+function getRecommendedMakeupStyles() {
+  const personalColor = $('personal-color').value;
+  return MAKEUP_STYLES_BY_PERSONAL_COLOR[personalColor] || [];
+}
+
+function renderMakeupOptions() {
+  const container = $('makeup-list');
+  if (!container) return;
+
+  const styles = getRecommendedMakeupStyles();
+  container.innerHTML = '';
+
+  styles.forEach((style) => {
+    const label = document.createElement('label');
+    const span = document.createElement('span');
+    span.textContent = style.style_name;
+    span.title = `코드: ${style.style_code} / 그룹: ${style.makeup_group}`;
+
+    if (!appState.ragCoverage.has(style.style_code)) {
+      span.classList.add('no-rag-data');
+    }
+
+    label.appendChild(span);
+    container.appendChild(label);
+  });
 }
 
 // ── DB 기반 추천 헤어 불러오기 ─────────────────────────────────────────────────
@@ -140,7 +197,6 @@ function renderHairOptions({ recommended, worst }) {
     });
   }
 
-  // 비추천 스타일
   if (worst.length > 0) {
     $('worst-area').classList.remove('hidden');
     const worstList = $('worst-list');
@@ -176,6 +232,7 @@ function getCheckedStyles() {
   return Array.from(
     document.querySelectorAll('#style-list input[type="checkbox"]:checked')
   ).map((cb) => ({
+    category: 'hair',
     style_name: cb.dataset.name,
     style_code: cb.dataset.code || null,
   }));
@@ -183,14 +240,17 @@ function getCheckedStyles() {
 
 // ── 분석 요청 ─────────────────────────────────────────────────────────────────
 async function handleAnalyze() {
-  const gender                  = getGender();
-  const face_shape              = $('face-shape').value;
-  const face_proportion         = $('face-proportion').value;
-  const recommended_hair_styles = getCheckedStyles();
+  const gender                     = getGender();
+  const face_shape                 = $('face-shape').value;
+  const face_proportion            = $('face-proportion').value;
+  const personal_color             = $('personal-color').value;
+  const recommended_hair_styles    = getCheckedStyles();
+  const recommended_makeup_styles  = getRecommendedMakeupStyles();
 
   hideError('analysis-error');
 
   if (!gender) return showError('analysis-error', '성별을 선택해주세요.');
+  if (!personal_color) return showError('analysis-error', '퍼스널컬러를 선택해주세요.');
   if (recommended_hair_styles.length < 1 || recommended_hair_styles.length > 3) {
     return showError('analysis-error', '헤어스타일을 1~3개 선택해주세요.');
   }
@@ -217,7 +277,14 @@ async function handleAnalyze() {
     const res = await fetch('/api/analysis', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ gender, face_shape, face_proportion, recommended_hair_styles }),
+      body:    JSON.stringify({
+        gender,
+        face_shape,
+        face_proportion,
+        personal_color,
+        recommended_hair_styles,
+        recommended_makeup_styles,
+      }),
     });
     const data = await res.json();
 
@@ -227,13 +294,13 @@ async function handleAnalyze() {
     }
 
     renderAnalysisResult(data);
-    injectAnalysisToChat({ gender, face_shape, face_proportion, data });
+    injectAnalysisToChat({ gender, face_shape, face_proportion, personal_color, data });
   } catch (e) {
     showError('analysis-error', `네트워크 오류: ${e.message}`);
   } finally {
     clearInterval(timerInterval);
     elapsedEl.textContent = `(${((Date.now() - startTime) / 1000).toFixed(1)}초 소요)`;
-    setLoading(btn, false, '분석 결과 생성');
+    setLoading(btn, false, '헤어 + 메이크업 분석 결과 생성');
     $('btn-analyze').disabled = getCheckedStyles().length < 1;
   }
 }
@@ -241,27 +308,46 @@ async function handleAnalyze() {
 function renderAnalysisResult(data) {
   $('analysis-result').classList.remove('hidden');
 
-  $('res-summary').textContent = data.analysis_summary || '(없음)';
+  $('res-hair-summary').textContent = data.hair_analysis_summary || '(없음)';
+  $('res-makeup-summary').textContent = data.makeup_analysis_summary || '(메이크업 RAG 데이터 없음)';
 
   const hairLines = (data.hair_recommendations || []).map(
-    (h) => `${h.style_name} (${h.style_code ?? 'code 없음'}) — 검색 ${h.retrieved_count}건, fallback: ${h.fallback_stage ?? 'none'}`
+    (h) => `${h.style_name} (${h.style_code ?? 'code 없음'}) — 검색 ${h.retrieved_count}건, fallback: ${h.fallback_stage ?? 'none'}, has_rag_data: ${h.has_rag_data}`
   );
   $('res-hair').textContent = hairLines.join('\n') || '(없음)';
 
+  const makeupLines = (data.makeup_recommendations || []).map(
+    (m) => `${m.style_name} (${m.style_code ?? 'code 없음'}, group: ${m.makeup_group ?? '-'}) — 검색 ${m.retrieved_count}건, fallback: ${m.fallback_stage ?? 'none'}, has_rag_data: ${m.has_rag_data}`
+  );
+  $('res-makeup').textContent = makeupLines.join('\n') || '(없음)';
+
   const ri = data.retrieval_info || {};
-  $('res-retrieval').textContent =
-    `헤어 문서: ${ri.hair_docs ?? 0}건 | fallback stages: ${JSON.stringify(ri.fallback_stages)}`;
+  $('res-retrieval').textContent = [
+    `헤어 문서: ${ri.hair_docs ?? 0}건 | fallback stages: ${JSON.stringify(ri.hair_fallback_stages || [])}`,
+    `메이크업 문서: ${ri.makeup_docs ?? 0}건 | fallback stages: ${JSON.stringify(ri.makeup_fallback_stages || [])}`,
+  ].join('\n');
 
   $('res-raw-json').textContent = JSON.stringify(data, null, 2);
 }
 
 // ── 분석 결과 → 챗봇 컨텍스트 자동 주입 ──────────────────────────────────────
-function injectAnalysisToChat({ gender, face_shape, face_proportion, data }) {
+function injectAnalysisToChat({ gender, face_shape, face_proportion, personal_color, data }) {
   $('chat-gender').value           = gender;
   $('chat-face-shape').value       = face_shape;
   $('chat-face-proportion').value  = face_proportion;
-  $('chat-prev-analysis').value    = data.analysis_summary || '';
-  $('chat-prev-recs').value        = JSON.stringify(data.hair_recommendations || [], null, 2);
+  $('chat-personal-color').value   = personal_color;
+
+  const previousAnalysis = {
+    hair_analysis_summary: data.hair_analysis_summary || null,
+    makeup_analysis_summary: data.makeup_analysis_summary || null,
+  };
+  const previousRecommendations = [
+    ...(data.hair_recommendations || []).map((item) => ({ ...item, category: 'hair' })),
+    ...(data.makeup_recommendations || []).map((item) => ({ ...item, category: 'makeup' })),
+  ];
+
+  $('chat-prev-analysis').value    = JSON.stringify(previousAnalysis, null, 2);
+  $('chat-prev-recs').value        = JSON.stringify(previousRecommendations, null, 2);
   $('chat-user-profile').value     = '{}';
 }
 
@@ -274,13 +360,22 @@ async function handleChat() {
   const gender          = $('chat-gender').value.trim();
   const face_shape      = $('chat-face-shape').value.trim();
   const face_proportion = $('chat-face-proportion').value.trim();
+  const personal_color  = $('chat-personal-color').value.trim();
 
-  let previous_analysis      = null;
+  let previous_analysis        = null;
   let previous_recommendations = [];
-  let user_profile           = {};
+  let user_profile             = {};
 
   if (!skipAnalysis) {
-    previous_analysis = $('chat-prev-analysis').value.trim() || null;
+    const rawPreviousAnalysis = $('chat-prev-analysis').value.trim();
+    if (rawPreviousAnalysis) {
+      try {
+        previous_analysis = JSON.parse(rawPreviousAnalysis);
+      } catch {
+        previous_analysis = rawPreviousAnalysis;
+      }
+    }
+
     try {
       previous_recommendations = JSON.parse($('chat-prev-recs').value || '[]');
     } catch {
@@ -308,8 +403,14 @@ async function handleChat() {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        user_message, gender, face_shape, face_proportion,
-        previous_analysis, previous_recommendations, user_profile,
+        user_message,
+        gender,
+        face_shape,
+        face_proportion,
+        personal_color,
+        previous_analysis,
+        previous_recommendations,
+        user_profile,
         chat_history: appState.chatHistory,
       }),
     });
@@ -343,7 +444,7 @@ function renderChatResult(data) {
 
   const ri = data.retrieval_info || {};
   $('res-chat-retrieval').textContent =
-    `retrieved_count: ${ri.retrieved_count ?? 0}   fallback_stage: ${ri.fallback_stage ?? 'none'}`;
+    `category: ${ri.category ?? data.category ?? '(없음)'}   retrieved_count: ${ri.retrieved_count ?? 0}   fallback_stage: ${ri.fallback_stage ?? 'none'}\nused_filter: ${JSON.stringify(ri.used_filter || {})}`;
 
   $('res-updated-profile').textContent  = JSON.stringify(data.updated_user_profile || {}, null, 2);
   $('res-chat-raw-json').textContent    = JSON.stringify(data, null, 2);
