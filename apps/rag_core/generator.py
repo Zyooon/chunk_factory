@@ -215,6 +215,16 @@ def normalize_model_content(content: Any) -> str:
     return str(content)
 
 
+def _get_analysis_category(generation_input: AnalysisGenerationInput) -> str:
+    for retrieval_result in generation_input.retrieval_results:
+        for document in retrieval_result.documents:
+            category = (document.metadata or {}).get("category")
+            if category in {"hair", "makeup"}:
+                return str(category)
+
+    return "hair"
+
+
 def generate_analysis_answer(
     generation_input: AnalysisGenerationInput,
 ) -> GenerationResult:
@@ -229,13 +239,23 @@ def generate_analysis_answer(
     generator_mode = os.getenv("RAG_GENERATOR_MODE", "gemini")
 
     if generator_mode == "mock":
-        return GenerationResult(
-            answer=(
-                "현재는 개발용 mock 응답입니다. "
+        category = _get_analysis_category(generation_input)
+        if category == "makeup":
+            answer = (
+                "현재는 개발용 mock 메이크업 분석 응답입니다. "
+                f"{generation_input.gender} / {generation_input.personal_color} 조건과 "
+                "추천 메이크업 목록을 바탕으로 별도 분석문이 생성될 예정입니다."
+            )
+        else:
+            answer = (
+                "현재는 개발용 mock 헤어 분석 응답입니다. "
                 f"{generation_input.gender} / {generation_input.face_shape} / "
                 f"{generation_input.face_proportion} 조건과 추천 헤어스타일 "
-                "목록을 바탕으로 하나의 종합 분석문이 생성될 예정입니다."
-            ),
+                "목록을 바탕으로 별도 분석문이 생성될 예정입니다."
+            )
+
+        return GenerationResult(
+            answer=answer,
             retrieval_result=RetrievalResult(query="analysis_rag"),
             model_name="mock",
         )
