@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Beauty RAG 로컬 테스트 (Hair)</title>
+  <title>Beauty RAG 로컬 테스트 (Hair + Makeup)</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
   <header>
-    <h1>Beauty RAG 로컬 테스트 &mdash; Hair</h1>
+    <h1>Beauty RAG 로컬 테스트 &mdash; Hair + Makeup</h1>
     <div class="header-right">
       <div class="sample-buttons">
         <button id="btn-sample-male">샘플 남성</button>
@@ -54,6 +54,15 @@
             <option value="하안부_긴형">하안부 긴형</option>
           </select>
         </div>
+        <div class="form-group">
+          <label class="field-label" for="personal-color">퍼스널컬러</label>
+          <select id="personal-color">
+            <option value="봄웜">봄웜</option>
+            <option value="여름쿨">여름쿨</option>
+            <option value="가을웜">가을웜</option>
+            <option value="겨울쿨">겨울쿨</option>
+          </select>
+        </div>
       </div>
 
       <!-- 추천 헤어 불러오기 -->
@@ -82,9 +91,20 @@
 
       </div>
 
+      <!-- 퍼스널컬러 기반 메이크업 목록 -->
+      <div id="makeup-options-area">
+        <div class="form-group">
+          <label class="field-label">
+            추천 메이크업
+            <span class="hint">퍼스널컬러별 3개 그룹 자동 포함</span>
+          </label>
+          <div id="makeup-list" class="style-grid"></div>
+        </div>
+      </div>
+
       <!-- 분석 실행 -->
       <div class="form-actions">
-        <button id="btn-analyze" class="btn-primary" disabled>분석 결과 생성</button>
+        <button id="btn-analyze" class="btn-primary" disabled>헤어 + 메이크업 분석 결과 생성</button>
       </div>
 
       <div id="analysis-error" class="error-box hidden"></div>
@@ -93,13 +113,23 @@
         <h3>분석 결과 <span id="analysis-elapsed" class="elapsed-badge"></span></h3>
 
         <div class="result-block">
-          <h4 class="result-label">분석 요약</h4>
-          <div id="res-summary" class="result-text"></div>
+          <h4 class="result-label">헤어 분석 요약</h4>
+          <div id="res-hair-summary" class="result-text"></div>
+        </div>
+
+        <div class="result-block">
+          <h4 class="result-label">메이크업 분석 요약</h4>
+          <div id="res-makeup-summary" class="result-text"></div>
         </div>
 
         <div class="result-block">
           <h4 class="result-label">헤어 추천 정보 <span class="dev-badge">개발 확인용</span></h4>
           <div id="res-hair" class="result-text mono"></div>
+        </div>
+
+        <div class="result-block">
+          <h4 class="result-label">메이크업 추천 정보 <span class="dev-badge">개발 확인용</span></h4>
+          <div id="res-makeup" class="result-text mono"></div>
         </div>
 
         <div class="result-block">
@@ -134,19 +164,23 @@
             <label class="field-label" for="chat-face-proportion">삼정 비율</label>
             <input type="text" id="chat-face-proportion" placeholder="균형">
           </div>
+          <div class="form-group">
+            <label class="field-label" for="chat-personal-color">퍼스널컬러</label>
+            <input type="text" id="chat-personal-color" placeholder="봄웜">
+          </div>
         </div>
 
         <div class="form-group">
-          <label class="field-label" for="chat-prev-analysis">이전 분석 요약</label>
-          <textarea id="chat-prev-analysis" rows="3" placeholder="분석 결과 생성 후 자동으로 채워집니다."></textarea>
+          <label class="field-label" for="chat-prev-analysis">이전 분석 결과</label>
+          <textarea id="chat-prev-analysis" rows="5" placeholder="분석 결과 생성 후 hair/makeup 분석 결과가 자동으로 채워집니다."></textarea>
         </div>
 
         <div class="form-group">
           <label class="field-label" for="chat-prev-recs">
             이전 추천 스타일 (JSON)
-            <span class="dev-badge">개발 확인용 — style_code 포함</span>
+            <span class="dev-badge">개발 확인용 — hair/makeup style_code 포함</span>
           </label>
-          <textarea id="chat-prev-recs" rows="3" placeholder='[{"style_name": "리프", "style_code": "m-09"}, ...]'></textarea>
+          <textarea id="chat-prev-recs" rows="5" placeholder='[{"category":"hair","style_name":"리프","style_code":"m-09"},{"category":"makeup","style_name":"피치 메이크업","style_code":"mk-sp-peach","makeup_group":"peach"}]'></textarea>
         </div>
 
         <div class="form-group">
@@ -165,7 +199,7 @@
       </div>
 
       <div class="chat-input-area">
-        <textarea id="chat-message" rows="2" placeholder="질문을 입력하세요..."></textarea>
+        <textarea id="chat-message" rows="2" placeholder="예: 리프 스타일 손질 어려워? / 피치 메이크업 나한테 어울려?"></textarea>
         <div class="form-actions">
           <button id="btn-chat" class="btn-primary">챗봇 질문 보내기</button>
           <button id="btn-reset-chat">대화 기록 초기화</button>
