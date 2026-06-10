@@ -19,6 +19,10 @@ from apps.rag_core.utils import (
 )
 
 
+CATEGORY_HAIR = "hair"
+CATEGORY_MAKEUP = "makeup"
+
+
 def get_embedding_model() -> OllamaEmbeddings:
     """
     ChromaDB 검색에 사용할 embedding model을 생성한다.
@@ -152,6 +156,81 @@ def build_hair_fallback_filters(
     return cleaned_filters
 
 
+def build_makeup_fallback_filters(
+    *,
+    category: str,
+    gender: str | None = None,
+    personal_color: str | None = None,
+    style_code: str | None = None,
+    makeup_group: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    makeup 검색용 fallback metadata filter 목록을 만든다.
+
+    메이크업 검색에서는 face_shape, face_proportion을 사용하지 않는다.
+
+    설계도 기준 fallback 순서:
+
+    1차: category + gender + personal_color + style_code
+    2차: category + personal_color + style_code
+    3차: category + gender + personal_color + makeup_group
+    4차: category + personal_color + makeup_group
+    5차: category + gender + personal_color
+    6차: category + personal_color
+    7차: category
+
+    style_code가 있으면 style_code 조건을 우선 사용하고,
+    style_code가 없거나 검색되지 않으면 makeup_group 조건으로 fallback한다.
+    """
+
+    raw_filters = [
+        {
+            "category": category,
+            "gender": gender,
+            "personal_color": personal_color,
+            "style_code": style_code,
+        },
+        {
+            "category": category,
+            "personal_color": personal_color,
+            "style_code": style_code,
+        },
+        {
+            "category": category,
+            "gender": gender,
+            "personal_color": personal_color,
+            "makeup_group": makeup_group,
+        },
+        {
+            "category": category,
+            "personal_color": personal_color,
+            "makeup_group": makeup_group,
+        },
+        {
+            "category": category,
+            "gender": gender,
+            "personal_color": personal_color,
+        },
+        {
+            "category": category,
+            "personal_color": personal_color,
+        },
+        {
+            "category": category,
+        },
+    ]
+
+    cleaned_filters: list[dict[str, Any]] = []
+
+    for raw_filter in raw_filters:
+        cleaned_filter = clean_metadata_filter(raw_filter)
+
+        if cleaned_filter not in cleaned_filters:
+            cleaned_filters.append(cleaned_filter)
+
+    return cleaned_filters
+
+
 def search_with_fallback(
     vectorstore,
     query: str,
@@ -201,22 +280,29 @@ def _retrieve_docs_with_vectorstore(
 ) -> RetrievalResult:
     """이미 생성된 vectorstore를 받아 단건 검색을 수행하는 내부 함수."""
 
-    category = retrieval_query.category or "hair"
+    category = retrieval_query.category or CATEGORY_HAIR
     k = retrieval_query.k or DEFAULT_RETRIEVAL_K
 
-    if category != "hair":
-        raise ValueError(
-            f"현재 retrieve_docs는 category='hair'만 지원합니다. "
-            f"입력된 category: {category}"
+    if category == CATEGORY_HAIR:
+        fallback_filters = build_hair_fallback_filters(
+            category=category,
+            gender=retrieval_query.gender,
+            face_shape=retrieval_query.face_shape,
+            face_proportion=retrieval_query.face_proportion,
+            style_code=retrieval_query.style_code,
         )
-
-    fallback_filters = build_hair_fallback_filters(
-        category=category,
-        gender=retrieval_query.gender,
-        face_shape=retrieval_query.face_shape,
-        face_proportion=retrieval_query.face_proportion,
-        style_code=retrieval_query.style_code,
-    )
+    elif category == CATEGORY_MAKEUP:
+        fallback_filters = build_makeup_fallback_filters(
+            category=category,
+            gender=retrieval_query.gender,
+            personal_color=retrieval_query.personal_color,
+            style_code=retrieval_query.style_code,
+            makeup_group=retrieval_query.makeup_group,
+        )
+    else:
+        raise ValueError(
+            f"지원하지 않는 category입니다. 입력된 category: {category}"
+        )
 
     return search_with_fallback(
         vectorstore=vectorstore,
@@ -230,19 +316,19 @@ def retrieve_docs(
     retrieval_query: RetrievalQuery | None = None,
     *,
     query: str | None = None,
-    category: str = "hair",
+    category: str = CATEGORY_HAIR,
     gender: str | None = None,
     face_shape: str | None = None,
     face_proportion: str | None = None,
+    personal_color: str | None = None,
+    makeup_group: str | None = None,
     style_code: str | None = None,
     k: int | None = None,
 ) -> RetrievalResult:
     """
     rag_core 외부에서 사용하는 대표 검색 함수.
 
-    현재 1차 구현은 hair category를 우선 지원한다.
-
-    두 가지 호출 방식을 모두 지원한다.
+    hair와 makeup 두 category를 모두 지원한다.
 
     1) RetrievalQuery 객체로 호출:
 
@@ -258,7 +344,7 @@ def retrieve_docs(
             )
         )
 
-    2) keyword argument로 호출:
+    2) keyword argument로 hair 검색:
 
         result = retrieve_docs(
             query="퀴프 스타일이 둥근형 남성에게 어울리는 이유",
@@ -267,6 +353,18 @@ def retrieve_docs(
             face_shape="둥근형",
             face_proportion="균형",
             style_code="m-10",
+            k=5,
+        )
+
+    3) keyword argument로 makeup 검색:
+
+        result = retrieve_docs(
+            query="봄웜에게 피치 메이크업이 어울리는 이유",
+            category="makeup",
+            gender="여성",
+            personal_color="봄웜",
+            makeup_group="peach",
+            style_code="mk-sp-peach",
             k=5,
         )
     """
@@ -281,6 +379,8 @@ def retrieve_docs(
             gender=gender,
             face_shape=face_shape,
             face_proportion=face_proportion,
+            personal_color=personal_color,
+            makeup_group=makeup_group,
             style_code=style_code,
             k=k or DEFAULT_RETRIEVAL_K,
         )
