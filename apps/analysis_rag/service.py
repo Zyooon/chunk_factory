@@ -181,6 +181,88 @@ def _build_recommendation_results(
     return recommendation_results, covered_pairs
 
 
+def _generate_hair_analysis_summary(
+    *,
+    gender: str,
+    face_shape: str,
+    face_proportion: str,
+    personal_color: str | None,
+    covered_hair_pairs: list[tuple[dict[str, Any], RetrievalResult]],
+) -> str:
+    """
+    헤어 전용 분석 문장을 생성한다.
+    """
+    if not covered_hair_pairs:
+        return "선택한 헤어스타일에 대한 분석 데이터가 없습니다."
+
+    generation_input = AnalysisGenerationInput(
+        gender=gender,
+        face_shape=face_shape,
+        face_proportion=face_proportion,
+        personal_color=personal_color,
+        recommended_styles=[
+            {
+                "style_name": style_info["style_name"],
+                "style_code": style_info["style_code"],
+                "retrieved_count": retrieval_result.retrieved_count,
+                "fallback_stage": retrieval_result.fallback_stage,
+            }
+            for style_info, retrieval_result in covered_hair_pairs
+        ],
+        recommended_hair_styles=[
+            style_info for style_info, _ in covered_hair_pairs
+        ],
+        recommended_makeup_styles=[],
+        retrieval_results=[
+            retrieval_result for _, retrieval_result in covered_hair_pairs
+        ],
+    )
+
+    return generate_analysis_answer(generation_input).answer
+
+
+def _generate_makeup_analysis_summary(
+    *,
+    gender: str,
+    face_shape: str,
+    face_proportion: str,
+    personal_color: str | None,
+    covered_makeup_pairs: list[tuple[dict[str, Any], RetrievalResult]],
+) -> str | None:
+    """
+    메이크업 전용 분석 문장을 생성한다.
+    """
+    if not covered_makeup_pairs:
+        return None
+
+    generation_input = AnalysisGenerationInput(
+        gender=gender,
+        face_shape=face_shape,
+        face_proportion=face_proportion,
+        personal_color=personal_color,
+        recommended_styles=[
+            {
+                "style_name": style_info["style_name"],
+                "style_code": style_info["style_code"],
+                "personal_color": style_info.get("personal_color"),
+                "makeup_group": style_info.get("makeup_group"),
+                "retrieved_count": retrieval_result.retrieved_count,
+                "fallback_stage": retrieval_result.fallback_stage,
+            }
+            for style_info, retrieval_result in covered_makeup_pairs
+        ],
+        recommended_hair_styles=[],
+        recommended_makeup_styles=[
+            style_info for style_info, _ in covered_makeup_pairs
+        ],
+        retrieval_results=[
+            retrieval_result for _, retrieval_result in covered_makeup_pairs
+        ],
+    )
+
+    return generate_analysis_answer(generation_input).answer
+
+
 def generate_analysis_result(
     gender: str,
     face_shape: str,
@@ -195,6 +277,8 @@ def generate_analysis_result(
     추천 자체는 이 함수에서 만들지 않는다.
     이미 알고리즘이 추천한 hair/makeup 목록에 대해 RAG 근거를 검색하고,
     프론트에서 사용할 수 있는 결과 구조로 반환한다.
+
+    헤어 분석 결과와 메이크업 분석 결과는 서로 다른 결과로 분리해 반환한다.
     """
     if not recommended_hair_styles:
         raise ValueError("recommended_hair_styles는 비어 있을 수 없습니다.")
@@ -237,44 +321,29 @@ def generate_analysis_result(
         makeup_retrieval_results,
     )
 
-    # 현재 analysis prompt는 헤어 중심 문장 생성을 기준으로 작성되어 있다.
-    # 따라서 Gemini 분석문에는 우선 헤어 RAG 문맥만 넣고,
-    # 메이크업은 구조화된 makeup_recommendations로 반환한다.
-    if covered_hair_pairs:
-        analysis_generation_input = AnalysisGenerationInput(
-            gender=gender,
-            face_shape=face_shape,
-            face_proportion=face_proportion,
-            personal_color=personal_color,
-            recommended_styles=[
-                {
-                    "style_name": style_info["style_name"],
-                    "style_code": style_info["style_code"],
-                    "retrieved_count": retrieval_result.retrieved_count,
-                    "fallback_stage": retrieval_result.fallback_stage,
-                }
-                for style_info, retrieval_result in covered_hair_pairs
-            ],
-            recommended_hair_styles=[
-                style_info for style_info, _ in covered_hair_pairs
-            ],
-            recommended_makeup_styles=[
-                style_info for style_info, _ in covered_makeup_pairs
-            ],
-            retrieval_results=[
-                retrieval_result for _, retrieval_result in covered_hair_pairs
-            ],
-        )
-        analysis_generation_result = generate_analysis_answer(analysis_generation_input)
-        analysis_summary = analysis_generation_result.answer
-    else:
-        analysis_summary = "선택한 헤어스타일에 대한 분석 데이터가 없습니다."
+    hair_analysis_summary = _generate_hair_analysis_summary(
+        gender=gender,
+        face_shape=face_shape,
+        face_proportion=face_proportion,
+        personal_color=personal_color,
+        covered_hair_pairs=covered_hair_pairs,
+    )
+    makeup_analysis_summary = _generate_makeup_analysis_summary(
+        gender=gender,
+        face_shape=face_shape,
+        face_proportion=face_proportion,
+        personal_color=personal_color,
+        covered_makeup_pairs=covered_makeup_pairs,
+    )
 
     hair_docs_count = sum(r.retrieved_count for r in hair_retrieval_results)
     makeup_docs_count = sum(r.retrieved_count for r in makeup_retrieval_results)
 
     return {
-        "analysis_summary": analysis_summary,
+        # 기존 클라이언트 호환용. 신규 클라이언트는 hair_analysis_summary 사용 권장.
+        "analysis_summary": hair_analysis_summary,
+        "hair_analysis_summary": hair_analysis_summary,
+        "makeup_analysis_summary": makeup_analysis_summary,
         "hair_recommendations": hair_results,
         "makeup_recommendations": makeup_results,
         "cautions": [
