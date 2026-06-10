@@ -8,6 +8,8 @@ METADATA_DEFAULTS: dict[str, Any] = {
     "gender": "정보 없음",
     "face_shape": "정보 없음",
     "face_proportion": "정보 없음",
+    "personal_color": "정보 없음",
+    "makeup_group": "정보 없음",
     "style_code": "정보 없음",
     "style_name": "정보 없음",
     "relation": "recommended",
@@ -82,13 +84,42 @@ def _format_list(title: str, values: Any, empty_message: str) -> str:
     return "\n".join(lines)
 
 
-def build_page_content(item: dict) -> str:
+def _build_common_detail_sections(item: dict) -> dict[str, str]:
     """
-    JSON 객체 1개를 임베딩 대상 자연어 텍스트로 변환한다.
+    hair와 makeup page_content가 공통으로 사용하는 설명 섹션을 만든다.
+    """
+    return {
+        "style_features": _format_list(
+            "스타일 특징",
+            item.get("style_features"),
+            "확인된 스타일 특징 없음",
+        ),
+        "styling_tips": _format_list(
+            "스타일링 팁",
+            item.get("styling_tips"),
+            "확인된 스타일링 팁 없음",
+        ),
+        "cautions": _format_list(
+            "주의사항",
+            item.get("cautions"),
+            "확인된 주의사항 없음",
+        ),
+        "good_variants": _format_list(
+            "추천 변형",
+            item.get("good_variants"),
+            "확인된 추천 변형 없음",
+        ),
+        "avoid_variants": _format_list(
+            "피하면 좋은 변형",
+            item.get("avoid_variants"),
+            "확인된 회피 변형 없음",
+        ),
+    }
 
-    새 done.json 스키마는 스타일 1개가 JSON 객체 1개로 저장되는 flat 구조다.
-    따라서 추천/비추천 목록을 펼치지 않고, 단일 스타일의 조건과 설명 필드를
-    자연어 문서로 구성한다.
+
+def build_hair_page_content(item: dict) -> str:
+    """
+    hair JSON 객체 1개를 임베딩 대상 자연어 텍스트로 변환한다.
     """
     category = _safe_text(item.get("category"))
     gender = _safe_text(item.get("gender"))
@@ -107,32 +138,7 @@ def build_page_content(item: dict) -> str:
         item.get("reason_detail"),
         "확인된 상세 이유 없음",
     )
-
-    style_features = _format_list(
-        "스타일 특징",
-        item.get("style_features"),
-        "확인된 스타일 특징 없음",
-    )
-    styling_tips = _format_list(
-        "스타일링 팁",
-        item.get("styling_tips"),
-        "확인된 스타일링 팁 없음",
-    )
-    cautions = _format_list(
-        "주의사항",
-        item.get("cautions"),
-        "확인된 주의사항 없음",
-    )
-    good_variants = _format_list(
-        "추천 변형",
-        item.get("good_variants"),
-        "확인된 추천 변형 없음",
-    )
-    avoid_variants = _format_list(
-        "피하면 좋은 변형",
-        item.get("avoid_variants"),
-        "확인된 회피 변형 없음",
-    )
+    sections = _build_common_detail_sections(item)
 
     return f"""카테고리: {category}
 대상 성별: {gender}
@@ -149,16 +155,84 @@ def build_page_content(item: dict) -> str:
 추천/비추천 이유 상세:
 {reason_detail}
 
-{style_features}
+{sections["style_features"]}
 
-{styling_tips}
+{sections["styling_tips"]}
 
-{cautions}
+{sections["cautions"]}
 
-{good_variants}
+{sections["good_variants"]}
 
-{avoid_variants}
+{sections["avoid_variants"]}
 """
+
+
+def build_makeup_page_content(item: dict) -> str:
+    """
+    makeup JSON 객체 1개를 임베딩 대상 자연어 텍스트로 변환한다.
+
+    메이크업 추천 기준은 얼굴형/삼정 비율이 아니라 성별 + 퍼스널컬러다.
+    따라서 makeup page_content에는 face_shape, face_proportion을 넣지 않는다.
+    """
+    category = _safe_text(item.get("category"))
+    gender = _safe_text(item.get("gender"))
+    personal_color = _safe_text(item.get("personal_color"))
+    makeup_group = _safe_text(item.get("makeup_group"))
+
+    style_code = _safe_text(item.get("style_code"))
+    style_name = _safe_text(item.get("style_name"))
+    relation = _safe_text(item.get("relation"), "recommended")
+
+    reason_summary = _safe_text(
+        item.get("reason_summary"),
+        "확인된 한 줄 이유 없음",
+    )
+    reason_detail = _safe_text(
+        item.get("reason_detail"),
+        "확인된 상세 이유 없음",
+    )
+    sections = _build_common_detail_sections(item)
+
+    return f"""카테고리: {category}
+대상 성별: {gender}
+퍼스널컬러 조건: {personal_color}
+메이크업 그룹: {makeup_group}
+
+스타일 관계: {relation}
+스타일 코드: {style_code}
+스타일명: {style_name}
+
+추천/비추천 이유 요약:
+{reason_summary}
+
+추천/비추천 이유 상세:
+{reason_detail}
+
+{sections["style_features"]}
+
+{sections["styling_tips"]}
+
+{sections["cautions"]}
+
+{sections["good_variants"]}
+
+{sections["avoid_variants"]}
+"""
+
+
+def build_page_content(item: dict) -> str:
+    """
+    JSON 객체 1개를 임베딩 대상 자연어 텍스트로 변환한다.
+
+    새 done.json 스키마는 스타일 1개가 JSON 객체 1개로 저장되는 flat 구조다.
+    category에 따라 hair와 makeup 문서 생성 규칙을 분리한다.
+    """
+    category = _safe_text(item.get("category"))
+
+    if category == "makeup":
+        return build_makeup_page_content(item)
+
+    return build_hair_page_content(item)
 
 
 def build_metadata(item: dict, idx: int) -> dict:
@@ -180,6 +254,14 @@ def build_metadata(item: dict, idx: int) -> dict:
         "face_proportion": _safe_text(
             item.get("face_proportion"),
             METADATA_DEFAULTS["face_proportion"],
+        ),
+        "personal_color": _safe_text(
+            item.get("personal_color"),
+            METADATA_DEFAULTS["personal_color"],
+        ),
+        "makeup_group": _safe_text(
+            item.get("makeup_group"),
+            METADATA_DEFAULTS["makeup_group"],
         ),
         "style_code": _safe_text(
             item.get("style_code"),
