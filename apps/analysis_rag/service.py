@@ -340,8 +340,6 @@ def generate_analysis_result(
     makeup_docs_count = sum(r.retrieved_count for r in makeup_retrieval_results)
 
     return {
-        # 기존 클라이언트 호환용. 신규 클라이언트는 hair_analysis_summary 사용 권장.
-        "analysis_summary": hair_analysis_summary,
         "hair_analysis_summary": hair_analysis_summary,
         "makeup_analysis_summary": makeup_analysis_summary,
         "hair_recommendations": hair_results,
