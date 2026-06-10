@@ -21,6 +21,7 @@ class ChatbotState(TypedDict, total=False):
     gender: str
     face_shape: str
     face_proportion: str
+    personal_color: str
 
     # 최초 분석 및 추천 결과
     previous_analysis: str | dict[str, Any] | None
@@ -36,7 +37,7 @@ class ChatbotState(TypedDict, total=False):
     intent: str
     category: str
 
-    # 사용자 메시지에서 감지된 헤어스타일
+    # 사용자 메시지에서 감지된 헤어스타일 또는 메이크업 스타일
     detected_style: dict[str, str] | None
     detected_style_is_recommended: bool
 
@@ -59,4 +60,3 @@ class ChatbotState(TypedDict, total=False):
     # 업데이트된 대화 기록/유저 정보
     updated_chat_history: list[dict[str, str]]
     updated_user_profile: dict[str, Any]
-
