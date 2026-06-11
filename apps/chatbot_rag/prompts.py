@@ -253,58 +253,6 @@ NOISE_MESSAGE = (
 )
 
 
-GREETING_KEYWORDS = [
-    "안녕",
-    "안녕하세요",
-    "하이",
-    "hello",
-    "hi",
-    "반가워",
-    "반갑습니다",
-]
-
-
-SMALLTALK_KEYWORDS = [
-    "고마워",
-    "감사",
-    "좋아",
-    "알겠어",
-    "오케이",
-    "ㅇㅋ",
-    "네",
-    "응",
-]
-
-
-IRRELEVANT_KEYWORDS = [
-    "날씨",
-    "주식",
-    "코딩",
-    "파이썬",
-    "게임",
-    "여행",
-    "음식",
-    "맛집",
-    "뉴스",
-    "정치",
-    "영화",
-    "노래",
-]
-
-
-NOISE_MESSAGES = {
-    "",
-    "ㅋ",
-    "ㅋㅋ",
-    "ㅋㅋㅋ",
-    "ㅋㅋㅋㅋ",
-    "ㅎㅎ",
-    "ㅎㅎㅎ",
-    "asdf",
-    "ㅁㄴㅇㄹ",
-}
-
-
 def build_clarification_message() -> str:
     """
     질문 의도가 불명확할 때 사용자에게 보여줄 객관식 재질문 메시지를 만든다.
@@ -338,42 +286,6 @@ def get_mood_option_by_id(option_id: str | None) -> dict | None:
 def build_mood_selection_title() -> str:
     return "추천받은 스타일을 어떤 분위기로 가져가고 싶으신가요?"
 
-
-def get_intent_by_keyword(message: str) -> str:
-    """
-    간단한 keyword 기반 intent 분류 함수.
-
-    핵심 원칙:
-    - 추천 결과 피드백과 관련된 질문만 상담 intent로 보낸다.
-    - 명확한 인사/잡담/범위 밖 질문은 RAG로 보내지 않는다.
-    - 애매한 질문은 clarification으로 보낸다.
-    """
-
-    normalized_message = message.strip().lower()
-
-    if normalized_message in NOISE_MESSAGES:
-        return INTENT_NOISE
-
-    if not normalized_message:
-        return INTENT_NOISE
-
-    if any(keyword in normalized_message for keyword in IRRELEVANT_KEYWORDS):
-        return INTENT_IRRELEVANT
-
-    for intent, keywords in INTENT_KEYWORDS.items():
-        if any(keyword.lower() in normalized_message for keyword in keywords):
-            return intent
-
-    if normalized_message in AMBIGUOUS_MESSAGES:
-        return INTENT_UNCLEAR
-
-    if any(keyword in normalized_message for keyword in GREETING_KEYWORDS):
-        return INTENT_GREETING
-
-    if normalized_message in SMALLTALK_KEYWORDS:
-        return INTENT_SMALLTALK
-
-    return INTENT_UNCLEAR
 
 
 def detect_question_category(message: str) -> str:
