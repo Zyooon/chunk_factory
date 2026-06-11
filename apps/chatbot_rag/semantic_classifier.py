@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import Any
+
+from apps.chatbot_rag.noise_filter import is_noise
+from apps.chatbot_rag.prompts import (
+    INTENT_COMPARISON,
+    INTENT_IRRELEVANT,
+    INTENT_MAINTENANCE,
+    INTENT_MOOD_SELECTION,
+    INTENT_NOISE,
+    INTENT_STYLE_FIT,
+    INTENT_STYLING_METHOD,
+)
+
+MODEL_NAME = "jhgan/ko-sroberta-multitask"
+SEMANTIC_INTENT_THRESHOLD = 0.58
+SEMANTIC_IRRELEVANT_THRESHOLD = 0.68
+
+INTENT_EXAMPLES: dict[str, list[str]] = {
+    INTENT_STYLE_FIT: [
+        "이 스타일이 나한테 어울릴까?",
+        "추천받은 머리가 내 얼굴형에 괜찮아?",
+        "이 메이크업이 내 퍼스널컬러랑 잘 맞아?",
+        "이 스타일이 너무 부담스럽지는 않을까?",
+        "데일리로 해도 괜찮을까?",
+    ],
+    INTENT_STYLING_METHOD: [
+        "이 머리는 어떻게 손질해?",
+        "이 스타일은 드라이를 어떻게 해야 해?",
+        "이 메이크업은 어떻게 연출하면 좋아?",
+        "사진 찍을 때 더 또렷하게 하려면 어떻게 해야 해?",
+        "립이나 블러셔는 어떻게 바르면 좋아?",
+    ],
+    INTENT_MAINTENANCE: [
+        "이 스타일은 관리하기 쉬워?",
+        "얼마나 자주 커트해야 해?",
+        "손이 많이 가는 스타일이야?",
+        "메이크업이 오래 유지되려면 어떻게 해야 해?",
+        "유지관리하기 편한 편이야?",
+    ],
+    INTENT_COMPARISON: [
+        "추천받은 스타일 중 뭐가 더 나아?",
+        "이 스타일이랑 저 스타일 중 뭐가 나한테 더 맞아?",
+        "둘 중 어떤 게 더 괜찮아?",
+        "추천받은 메이크업 중 뭐가 더 자연스러워?",
+    ],
+    INTENT_MOOD_SELECTION: [
+        "이 스타일을 어떤 분위기로 가져가면 좋을까?",
+        "소개팅에 맞게 어떤 느낌으로 하면 좋을까?",
+        "너무 세 보이지 않게 하고 싶어",
+        "부드러운 분위기로 보이고 싶어",
+        "차분하고 깔끔한 느낌으로 하고 싶어",
+        "어떤 이미지로 연출하면 좋을까?",
+    ],
+    INTENT_IRRELEVANT: [
+        "오늘 날씨 어때?",
+        "다른 주제에 대해 알려줘",
+        "맛있는 음식 추천해줘",
+        "여행 계획을 세워줘",
+        "영화 추천해줘",
+    ],
+}
+
+
+def _load_sentence_transformer_class() -> Any | None:
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception:
+        return None
+
+    return SentenceTransformer
+
+
+@lru_cache(maxsize=1)
+def _get_model() -> Any | None:
+    SentenceTransformer = _load_sentence_transformer_class()
+    if SentenceTransformer is None:
+        return None
+
+    try:
+        return SentenceTransformer(MODEL_NAME)
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=1)
+def _get_example_embeddings() -> tuple[list[str], list[str], Any] | None:
+    model = _get_model()
+    if model is None:
+        return None
+
+    intents: list[str] = []
+    examples: list[str] = []
+
+    for intent, intent_examples in INTENT_EXAMPLES.items():
+        for example in intent_examples:
+            intents.append(intent)
+            examples.append(example)
+
+    try:
+        embeddings = model.encode(
+            examples,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+        )
+    except Exception:
+        return None
+
+    return intents, examples, embeddings
+
+
+def classify_intent_semantically(message: str) -> tuple[str | None, float]:
+    """
+    ko-sroberta 기반 semantic intent 분류를 수행한다.
+
+    모델 또는 의존성이 없으면 (None, 0.0)을 반환하여 keyword fallback이 동작하게 한다.
+    """
+
+    normalized_message = message.strip()
+
+    if is_noise(normalized_message):
+        return INTENT_NOISE, 1.0
+
+    cached_examples = _get_example_embeddings()
+    model = _get_model()
+
+    if cached_examples is None or model is None:
+        return None, 0.0
+
+    intents, _examples, example_embeddings = cached_examples
+
+    try:
+        from sentence_transformers import util
+
+        message_embedding = model.encode(
+            normalized_message,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+        )
+        scores = util.cos_sim(message_embedding, example_embeddings)[0]
+        best_index = int(scores.argmax().item())
+        best_score = float(scores[best_index].item())
+        best_intent = intents[best_index]
+    except Exception:
+        return None, 0.0
+
+    if best_intent == INTENT_IRRELEVANT:
+        if best_score >= SEMANTIC_IRRELEVANT_THRESHOLD:
+            return best_intent, best_score
+        return None, best_score
+
+    if best_score >= SEMANTIC_INTENT_THRESHOLD:
+        return best_intent, best_score
+
+    return None, best_score
