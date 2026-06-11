@@ -39,6 +39,7 @@ class ChatbotState(TypedDict, total=False):
 
     # 질문 의도 분류 결과
     intent: str
+    intent_debug: dict[str, Any]
     category: str
 
     # 사용자 메시지 또는 applied_style_key에서 감지된 헤어스타일 또는 메이크업 스타일
