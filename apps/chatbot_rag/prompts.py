@@ -24,7 +24,6 @@ INTENT_OCCASION_ADVICE = "occasion_advice"
 PENDING_SELECTION_OCCASION_MOOD = "occasion_mood"
 
 
-
 CATEGORY_HAIR = "hair"
 CATEGORY_MAKEUP = "makeup"
 
@@ -69,6 +68,29 @@ INTENT_KEYWORDS = {
         "나한테",
         "잘 맞",
         "추천받은",
+        "세련",
+        "깔끔",
+        "이미지",
+        "분위기",
+        "부드러운",
+        "부드럽",
+        "차분",
+        "어려 보",
+        "성숙",
+        "자연스럽게",
+        "튀는 건 싫",
+        "바꾸고 싶",
+        "달라지고 싶",
+        "짧은 머리",
+        "기장감",
+        "앞머리",
+        "이마",
+        "얼굴이 길어",
+        "볼살",
+        "고민",
+        "데일리",
+        "뭐가 좋아",
+        "어떤 게 좋아",
     ],
     INTENT_STYLING_METHOD: [
         "손질",
@@ -89,6 +111,10 @@ INTENT_KEYWORDS = {
         "연출",
         "화장법",
         "메이크업법",
+        "사진",
+        "또렷",
+        "어떻게 해야",
+        "어떻게 하면",
     ],
     INTENT_MAINTENANCE: [
         "유지",
@@ -330,6 +356,9 @@ def get_intent_by_keyword(message: str) -> str:
     if not normalized_message:
         return INTENT_NOISE
 
+    if any(keyword in normalized_message for keyword in IRRELEVANT_KEYWORDS):
+        return INTENT_IRRELEVANT
+
     for intent, keywords in INTENT_KEYWORDS.items():
         if any(keyword.lower() in normalized_message for keyword in keywords):
             return intent
@@ -342,9 +371,6 @@ def get_intent_by_keyword(message: str) -> str:
 
     if normalized_message in SMALLTALK_KEYWORDS:
         return INTENT_SMALLTALK
-
-    if any(keyword in normalized_message for keyword in IRRELEVANT_KEYWORDS):
-        return INTENT_IRRELEVANT
 
     return INTENT_UNCLEAR
 
@@ -603,4 +629,3 @@ def format_detected_style_for_prompt(
             f"- 추천 목록 포함 여부: {relation_text}",
         ]
     )
-
