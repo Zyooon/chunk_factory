@@ -24,12 +24,6 @@ from apps.chatbot_rag.prompts import (
     MISSING_ANALYSIS_MESSAGE,
     NOISE_MESSAGE,
     SMALLTALK_MESSAGE,
-    INTENT_OCCASION_ADVICE,
-    OCCASION_MOOD_OPTIONS,
-    PENDING_SELECTION_OCCASION_MOOD,
-    INTENT_MOOD_CHOICE,
-    get_mood_option_by_id,
-    detect_occasion,
     build_clarification_message,
     detect_question_category,
     get_intent_by_keyword,
@@ -45,7 +39,7 @@ def check_analysis_exists(state: ChatbotState) -> ChatbotState:
     """
     chatbot_rag 실행 전제 조건을 확인한다.
 
-    chatbot_rag는 최초 분석 이후의 후속 상담 기능이므로
+    chatbot_rag는 추천 결과에 대한 피드백/후속 질문 기능이므로
     previous_analysis와 previous_recommendations가 없으면
     RAG 검색이나 Gemini 호출을 하지 않고 조기 반환한다.
     """
@@ -58,7 +52,7 @@ def check_analysis_exists(state: ChatbotState) -> ChatbotState:
         return state
 
     state["intent"] = INTENT_MISSING_ANALYSIS
-    state["category"] = CATEGORY_HAIR
+    state["category"] = state.get("target_type") or CATEGORY_HAIR
     state["needs_clarification"] = False
     state["answer"] = MISSING_ANALYSIS_MESSAGE
     state["error"] = "missing_analysis"
@@ -93,55 +87,9 @@ def ask_clarification(state: ChatbotState) -> ChatbotState:
     state["retrieval_info"] = {
         "retrieved_count": 0,
         "fallback_stage": "none",
-    }
-
-    return state
-
-# apps/chatbot_rag/nodes.py
-
-def ask_mood_selection(state: ChatbotState) -> ChatbotState:
-    detected_occasion = state.get("detected_occasion")
-
-    if detected_occasion:
-        answer = f"{detected_occasion} 상황이라면 어떤 분위기로 보이고 싶은지 먼저 골라주세요."
-    else:
-        answer = "어떤 분위기로 보이고 싶은지 먼저 골라주세요."
-
-    state["answer"] = answer
-    state["pending_selection"] = PENDING_SELECTION_OCCASION_MOOD
-    state["selected_mood"] = None
-    state["selected_mood_id"] = None
-    state["selected_mood_keywords"] = []
-
-    state["selection"] = {
-        "type": PENDING_SELECTION_OCCASION_MOOD,
-        "title": "원하는 분위기를 선택해 주세요.",
-        "options": [
-            {
-                "id": option["id"],
-                "label": option["label"],
-                "value": option["label"],
-            }
-            for option in OCCASION_MOOD_OPTIONS
-        ],
-    }
-
-    state["retrieval_result"] = RetrievalResult(
-        query=state.get("user_message", ""),
-        documents=[],
-        retrieved_count=0,
-        fallback_stage=None,
-        used_filter={},
-    )
-    state["retrieval_info"] = {
-        "category": state.get("category") or CATEGORY_HAIR,
-        "retrieved_count": 0,
-        "fallback_stage": "none",
         "used_filter": {},
         "skipped_rag": True,
         "skip_reason": state.get("intent"),
-        "pending_selection": PENDING_SELECTION_OCCASION_MOOD,
-        "detected_occasion": detected_occasion,
     }
 
     return state
@@ -184,6 +132,53 @@ def generate_non_rag_answer(state: ChatbotState) -> ChatbotState:
     }
 
     return state
+
+
+def _normalize_target_type(target_type: str | None) -> str | None:
+    if target_type in {CATEGORY_HAIR, CATEGORY_MAKEUP}:
+        return target_type
+    return None
+
+
+def _find_recommended_style_by_key(
+    applied_style_key: str | None,
+    previous_recommendations: list[dict[str, Any]],
+    category: str | None = None,
+) -> dict[str, str] | None:
+    """
+    DB/API에서 전달된 applied_style_key로 이전 추천 스타일을 찾는다.
+    """
+
+    if not applied_style_key:
+        return None
+
+    for recommendation in previous_recommendations:
+        if category and recommendation.get("category") not in {category, None}:
+            continue
+
+        candidate_keys = {
+            recommendation.get("style_code"),
+            recommendation.get("style_key"),
+            recommendation.get("applied_style_key"),
+            recommendation.get("style_name"),
+        }
+
+        if applied_style_key not in {str(key) for key in candidate_keys if key}:
+            continue
+
+        style_name = recommendation.get("style_name")
+        style_code = recommendation.get("style_code") or recommendation.get("style_key")
+
+        if not style_name and not style_code:
+            continue
+
+        return {
+            "style_name": str(style_name or ""),
+            "style_code": str(style_code or applied_style_key),
+            "makeup_group": recommendation.get("makeup_group"),
+        }
+
+    return None
 
 
 def _find_style_code_from_message(
@@ -244,9 +239,7 @@ def _is_recommended_style(
 
 def classify_intent(state: ChatbotState) -> ChatbotState:
     """
-    사용자 질문의 의도를 분류한다.
-
-    메시지 키워드와 감지된 스타일을 바탕으로 hair/makeup category를 함께 결정한다.
+    추천 결과에 대한 사용자 피드백 질문의 의도를 분류한다.
     """
 
     if state.get("error") == "missing_analysis":
@@ -256,61 +249,40 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
     gender = state.get("gender")
     personal_color = state.get("personal_color")
     previous_recommendations = state.get("previous_recommendations") or []
+    applied_style_key = state.get("applied_style_key")
 
-    selected_option = state.get("selected_option")
-    user_profile = state.get("user_profile") or {}
-
-    pending_selection = (
-        state.get("pending_selection")
-        or user_profile.get("pending_selection")
-    )
-
-    if pending_selection == PENDING_SELECTION_OCCASION_MOOD and selected_option:
-        selected_option_type = selected_option.get("type")
-        selected_option_id = selected_option.get("id")
-
-        if selected_option_type == PENDING_SELECTION_OCCASION_MOOD:
-            mood_option = get_mood_option_by_id(selected_option_id)
-
-            if mood_option:
-                state["intent"] = INTENT_MOOD_CHOICE
-                state["category"] = CATEGORY_HAIR
-                state["selected_mood_id"] = mood_option["id"]
-                state["selected_mood"] = mood_option["label"]
-                state["selected_mood_keywords"] = mood_option["mood_keywords"]
-                state["pending_selection"] = None
-                state["needs_clarification"] = False
-                state["clarification_options"] = []
-                return state
-
+    target_type = _normalize_target_type(state.get("target_type"))
     intent = get_intent_by_keyword(user_message)
-    category = detect_question_category(user_message)
+    category = target_type or detect_question_category(user_message)
 
-    detected_occasion = detect_occasion(user_message)
-
-    if intent == INTENT_OCCASION_ADVICE:
-        category = CATEGORY_HAIR
-        state["detected_occasion"] = detected_occasion
-    else:
-        state["detected_occasion"] = None
-
-    detected_hair_style = find_hair_style_in_message(
-        message=user_message,
-        gender=gender,
-    )
-    detected_makeup_style = find_makeup_style_in_message(
-        message=user_message,
-        personal_color=personal_color,
+    detected_style = _find_recommended_style_by_key(
+        applied_style_key=applied_style_key,
+        previous_recommendations=previous_recommendations,
+        category=category,
     )
 
-    if detected_makeup_style:
-        category = CATEGORY_MAKEUP
-        detected_style = detected_makeup_style
-    elif detected_hair_style:
-        category = CATEGORY_HAIR
-        detected_style = detected_hair_style
-    else:
-        detected_style = None
+    if not detected_style:
+        detected_hair_style = find_hair_style_in_message(
+            message=user_message,
+            gender=gender,
+        )
+        detected_makeup_style = find_makeup_style_in_message(
+            message=user_message,
+            personal_color=personal_color,
+        )
+
+        if category == CATEGORY_MAKEUP:
+            detected_style = detected_makeup_style
+        elif category == CATEGORY_HAIR:
+            detected_style = detected_hair_style
+        elif detected_makeup_style:
+            category = CATEGORY_MAKEUP
+            detected_style = detected_makeup_style
+        elif detected_hair_style:
+            category = CATEGORY_HAIR
+            detected_style = detected_hair_style
+        else:
+            detected_style = None
 
     detected_style_is_recommended = _is_recommended_style(
         detected_style=detected_style,
@@ -318,7 +290,11 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
         category=category,
     )
 
-    # 추천 목록 밖 스타일이라도 사용자가 명시적으로 물어본 경우 상담으로 처리한다.
+    # applied_style_key로 추천 스타일이 지정된 경우에는 추천 목록 기반 피드백으로 본다.
+    if detected_style and applied_style_key:
+        detected_style_is_recommended = True
+
+    # 추천 목록 안팎의 스타일을 직접 언급한 경우에는 피드백 상담으로 처리한다.
     if detected_style and intent in {
         INTENT_UNCLEAR,
         INTENT_GREETING,
@@ -345,10 +321,7 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
 
 def retrieve_context(state: ChatbotState) -> ChatbotState:
     """
-    현재 질문과 사용자 진단 정보를 바탕으로 ChromaDB에서 문서를 검색한다.
-
-    category가 hair이면 얼굴형/삼정 기준으로,
-    makeup이면 퍼스널컬러 기준으로 검색한다.
+    추천 결과 피드백 질문과 사용자 진단 정보를 바탕으로 ChromaDB에서 문서를 검색한다.
     """
 
     if state.get("error") == "missing_analysis":
@@ -365,15 +338,12 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
     personal_color = state.get("personal_color")
     previous_recommendations = state.get("previous_recommendations") or []
     detected_style = state.get("detected_style")
-
-    selected_mood = state.get("selected_mood")
-    selected_mood_keywords = state.get("selected_mood_keywords") or []
-    detected_occasion = state.get("detected_occasion") or (
-        state.get("user_profile") or {}
-    ).get("detected_occasion")
+    applied_style_key = state.get("applied_style_key")
 
     if detected_style:
         style_code = detected_style.get("style_code")
+    elif applied_style_key:
+        style_code = applied_style_key
     else:
         style_code = _find_style_code_from_message(
             user_message=user_message,
@@ -403,15 +373,10 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             "k": 3,
         }
     else:
-        mood_text = " ".join(selected_mood_keywords)
-
         query = (
             f"{gender or ''} {face_shape or ''} 얼굴형 "
             f"{face_proportion or ''} 삼정 비율 "
             f"{detected_style_name} "
-            f"{detected_occasion or ''} "
-            f"{selected_mood or ''} "
-            f"{mood_text} "
             f"{user_message}"
         ).strip()
 
@@ -431,6 +396,8 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
         state["retrieval_result"] = retrieval_result
         state["retrieval_info"] = {
             "category": category,
+            "target_type": state.get("target_type"),
+            "applied_style_key": applied_style_key,
             "retrieved_count": retrieval_result.retrieved_count,
             "fallback_stage": retrieval_result.fallback_stage
             if retrieval_result.fallback_stage is not None
@@ -448,6 +415,8 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
         )
         state["retrieval_info"] = {
             "category": category,
+            "target_type": state.get("target_type"),
+            "applied_style_key": applied_style_key,
             "retrieved_count": 0,
             "fallback_stage": "none",
         }
@@ -480,14 +449,11 @@ def generate_answer_node(state: ChatbotState) -> ChatbotState:
 
     user_profile = dict(state.get("user_profile") or {})
 
-    if state.get("selected_mood"):
-        user_profile["selected_mood"] = state.get("selected_mood")
+    if state.get("target_type"):
+        user_profile["target_type"] = state.get("target_type")
 
-    if state.get("selected_mood_keywords"):
-        user_profile["selected_mood_keywords"] = state.get("selected_mood_keywords")
-
-    if state.get("detected_occasion"):
-        user_profile["detected_occasion"] = state.get("detected_occasion")
+    if state.get("applied_style_key"):
+        user_profile["applied_style_key"] = state.get("applied_style_key")
 
     generation_input = ChatGenerationInput(
         user_message=state.get("user_message", ""),
@@ -515,6 +481,8 @@ def generate_answer_node(state: ChatbotState) -> ChatbotState:
     state["retrieval_result"] = generation_result.retrieval_result
     state["retrieval_info"] = {
         "category": state.get("category"),
+        "target_type": state.get("target_type"),
+        "applied_style_key": state.get("applied_style_key"),
         "retrieved_count": generation_result.retrieval_result.retrieved_count,
         "fallback_stage": generation_result.retrieval_result.fallback_stage
         if generation_result.retrieval_result.fallback_stage is not None
@@ -543,21 +511,6 @@ def update_memory(state: ChatbotState) -> ChatbotState:
     )
 
     new_preferences = extract_simple_user_preferences(user_message)
-
-    if state.get("pending_selection"):
-        new_preferences["pending_selection"] = state.get("pending_selection")
-
-    if state.get("detected_occasion"):
-        new_preferences["detected_occasion"] = state.get("detected_occasion")
-
-    if state.get("selected_mood"):
-        new_preferences["selected_mood"] = state.get("selected_mood")
-        new_preferences["selected_mood_id"] = state.get("selected_mood_id")
-        new_preferences["selected_mood_keywords"] = state.get(
-            "selected_mood_keywords",
-            [],
-        )
-        new_preferences["pending_selection"] = None
 
     updated_user_profile = merge_user_profile(
         user_profile=state.get("user_profile") or {},
