@@ -22,6 +22,11 @@ MOOD_SELECTION_KEYWORDS = [
     "소개팅에 맞게",
     "데이트에 맞게",
     "면접에 맞게",
+    "면접용으로 바꾸",
+    "출근용으로 바꾸",
+    "데이트용으로 바꾸",
+    "메이크업을 면접용",
+    "메이크업 분위기",
     "부드럽게",
     "차분하게",
     "세련되게",
@@ -33,6 +38,28 @@ MOOD_SELECTION_KEYWORDS = [
     "어떤 이미지로",
     "이미지로 연출",
     "분위기 맞출",
+]
+
+COMPARISON_PRIORITY_PHRASES = [
+    "추천받은 것 중",
+    "추천받은 스타일 중",
+    "추천받은 메이크업 중",
+    "뭐가 제일",
+    "뭐가 가장",
+    "가장 괜찮",
+    "제일 괜찮",
+    "중 뭐가",
+    "중에 뭐",
+    "둘 중",
+]
+
+STYLE_FIT_PRIORITY_PHRASES = [
+    "데일리로 하기 괜찮",
+    "데일리로 괜찮",
+    "면접 볼 때",
+    "이 머리 해도 단정",
+    "이 스타일 괜찮",
+    "스타일인가요",
 ]
 
 INTENT_KEYWORDS: dict[str, list[str]] = {
@@ -55,7 +82,6 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
         "리프랑",
         "퀴프랑",
         "댄디랑",
-        "아이비리그",
         "피치랑",
         "코랄이랑",
         "로즈랑",
@@ -257,6 +283,10 @@ IRRELEVANT_KEYWORDS = [
 ]
 
 
+def _has_any(message: str, phrases: list[str]) -> bool:
+    return any(phrase.lower() in message for phrase in phrases)
+
+
 def get_intent_by_keyword(message: str) -> str:
     if is_noise(message):
         return INTENT_NOISE
@@ -265,6 +295,12 @@ def get_intent_by_keyword(message: str) -> str:
 
     if any(keyword in normalized_message for keyword in IRRELEVANT_KEYWORDS):
         return INTENT_IRRELEVANT
+
+    if _has_any(normalized_message, COMPARISON_PRIORITY_PHRASES):
+        return INTENT_COMPARISON
+
+    if _has_any(normalized_message, STYLE_FIT_PRIORITY_PHRASES):
+        return INTENT_STYLE_FIT
 
     for intent, keywords in INTENT_KEYWORDS.items():
         if any(keyword.lower() in normalized_message for keyword in keywords):
