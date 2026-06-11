@@ -4,6 +4,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from apps.chatbot_rag.bypass_gate import should_bypass_llm
 from apps.chatbot_rag.nodes import (
     ask_clarification,
     ask_mood_selection,
@@ -18,11 +19,7 @@ from apps.chatbot_rag.nodes import (
 from apps.chatbot_rag.prompts import (
     CATEGORY_HAIR,
     CATEGORY_MAKEUP,
-    INTENT_GREETING,
-    INTENT_IRRELEVANT,
     INTENT_MOOD_SELECTION,
-    INTENT_NOISE,
-    INTENT_SMALLTALK,
 )
 
 from apps.chatbot_rag.state import ChatbotState
@@ -45,7 +42,7 @@ def route_after_intent(state: ChatbotState) -> str:
     """
     intent 분류 후 다음 노드를 결정한다.
 
-    - non-RAG intent는 고정 응답으로 보낸다.
+    - bypass intent는 고정 응답으로 보낸다.
     - mood_selection은 선택 UI를 반환한다.
     - unclear는 객관식 재질문으로 보낸다.
     - 나머지 피드백 상담 intent는 RAG 검색으로 보낸다.
@@ -53,12 +50,7 @@ def route_after_intent(state: ChatbotState) -> str:
 
     intent = state.get("intent")
 
-    if intent in {
-        INTENT_GREETING,
-        INTENT_SMALLTALK,
-        INTENT_IRRELEVANT,
-        INTENT_NOISE,
-    }:
+    if should_bypass_llm(intent):
         return "generate_non_rag_answer"
 
     if intent == INTENT_MOOD_SELECTION:
