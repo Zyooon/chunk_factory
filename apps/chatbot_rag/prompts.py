@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.chatbot_rag.noise_filter import is_noise
 from apps.rag_core.schemas import ChatGenerationInput
 from apps.rag_core.utils import format_documents_as_context
 
@@ -231,22 +232,54 @@ AMBIGUOUS_MESSAGES = {
     "좋아",
 }
 
+GREETING_KEYWORDS = [
+    "안녕",
+    "안녕하세요",
+    "하이",
+    "hello",
+    "hi",
+    "반가워",
+    "반갑습니다",
+]
+
+SMALLTALK_KEYWORDS = [
+    "고마워",
+    "감사",
+    "좋아",
+    "알겠어",
+    "오케이",
+    "ㅇㅋ",
+    "네",
+    "응",
+]
+
+IRRELEVANT_KEYWORDS = [
+    "날씨",
+    "주식",
+    "코딩",
+    "파이썬",
+    "게임",
+    "여행",
+    "음식",
+    "맛집",
+    "뉴스",
+    "정치",
+    "영화",
+    "노래",
+]
 
 GREETING_MESSAGE = (
     "추천받은 헤어스타일이나 메이크업에 대해 궁금한 점을 물어봐 주세요."
 )
 
-
 SMALLTALK_MESSAGE = (
     "좋아요. 추천 결과에 대해 더 궁금한 점이 있으면 이어서 물어봐 주세요."
 )
-
 
 IRRELEVANT_MESSAGE = (
     "저는 추천받은 헤어스타일과 메이크업에 대한 피드백 상담을 도와드리는 챗봇입니다. "
     "추천 결과의 어울림, 손질·연출 방법, 유지 관리, 스타일 비교에 대해 질문해 주세요."
 )
-
 
 NOISE_MESSAGE = (
     "질문을 이해하기 어려워요. 추천받은 헤어스타일이나 메이크업에 대해 조금 더 구체적으로 입력해 주세요."
@@ -287,6 +320,37 @@ def build_mood_selection_title() -> str:
     return "추천받은 스타일을 어떤 분위기로 가져가고 싶으신가요?"
 
 
+def get_intent_by_keyword(message: str) -> str:
+    """
+    간단한 keyword 기반 intent 분류 함수.
+
+    1차 정리 단계에서는 noise 판단만 noise_filter로 분리하고,
+    나머지 키워드 분류는 semantic classifier 도입 전까지 fallback으로 유지한다.
+    """
+
+    normalized_message = message.strip().lower()
+
+    if is_noise(normalized_message):
+        return INTENT_NOISE
+
+    if any(keyword in normalized_message for keyword in IRRELEVANT_KEYWORDS):
+        return INTENT_IRRELEVANT
+
+    for intent, keywords in INTENT_KEYWORDS.items():
+        if any(keyword.lower() in normalized_message for keyword in keywords):
+            return intent
+
+    if normalized_message in AMBIGUOUS_MESSAGES:
+        return INTENT_UNCLEAR
+
+    if any(keyword in normalized_message for keyword in GREETING_KEYWORDS):
+        return INTENT_GREETING
+
+    if normalized_message in SMALLTALK_KEYWORDS:
+        return INTENT_SMALLTALK
+
+    return INTENT_UNCLEAR
+
 
 def detect_question_category(message: str) -> str:
     """
@@ -310,13 +374,6 @@ def format_previous_recommendations_for_prompt(
     previous_recommendations: list[dict[str, Any]],
     category: str | None = None,
 ) -> str:
-    """
-    이전 추천 스타일 목록을 프롬프트용 문자열로 변환한다.
-
-    style_code는 내부 식별자이므로 프롬프트에도 전달하지 않는다.
-    category가 주어지면 해당 category 추천만 우선 표시한다.
-    """
-
     if not previous_recommendations:
         return "이전 추천 스타일 정보가 없습니다."
 
@@ -340,10 +397,6 @@ def format_chat_history_for_prompt(
     chat_history: list[dict[str, str]],
     max_messages: int = 10,
 ) -> str:
-    """
-    최근 대화 기록을 프롬프트용 문자열로 변환한다.
-    """
-
     if not chat_history:
         return "최근 대화 기록이 없습니다."
 
@@ -402,12 +455,6 @@ def _get_category_specific_rules(category: str | None) -> str:
 def build_chat_generation_prompt(
     generation_input: ChatGenerationInput,
 ) -> str:
-    """
-    chatbot_rag 답변 생성용 프롬프트.
-
-    chatbot_rag의 말투, 길이, 출력 형식은 이 함수 한 곳에서만 관리한다.
-    """
-
     category = generation_input.category or CATEGORY_HAIR
     category_label = _get_category_label(category)
 
@@ -505,12 +552,6 @@ def format_detected_style_for_prompt(
     detected_style_is_recommended: bool,
     category: str | None = None,
 ) -> str:
-    """
-    사용자 현재 질문에서 감지된 헤어스타일 또는 메이크업 스타일 정보를 프롬프트용 문자열로 변환한다.
-
-    style_code는 내부 식별자이므로 프롬프트에 넣지 않는다.
-    """
-
     category_label = _get_category_label(category)
 
     if not detected_style:
