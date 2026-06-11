@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.chatbot_rag.bypass_gate import get_bypass_response
 from apps.chatbot_rag.memory import (
     append_chat_history,
     extract_simple_user_preferences,
@@ -12,22 +13,17 @@ from apps.chatbot_rag.prompts import (
     CATEGORY_HAIR,
     CATEGORY_MAKEUP,
     CLARIFICATION_OPTIONS,
-    GREETING_MESSAGE,
     INTENT_GENERAL_FOLLOWUP,
     INTENT_GREETING,
     INTENT_IRRELEVANT,
     INTENT_MOOD_CHOICE,
-    INTENT_MOOD_SELECTION,
     INTENT_MISSING_ANALYSIS,
     INTENT_NOISE,
     INTENT_SMALLTALK,
     INTENT_UNCLEAR,
-    IRRELEVANT_MESSAGE,
     MISSING_ANALYSIS_MESSAGE,
     MOOD_OPTIONS,
-    NOISE_MESSAGE,
     PENDING_SELECTION_MOOD,
-    SMALLTALK_MESSAGE,
     build_clarification_message,
     build_mood_selection_title,
     detect_question_category,
@@ -147,20 +143,13 @@ def ask_mood_selection(state: ChatbotState) -> ChatbotState:
 
 def generate_non_rag_answer(state: ChatbotState) -> ChatbotState:
     """
-    RAG 검색이나 Gemini 호출이 필요 없는 입력에 대해 고정 응답을 반환한다.
+    LLM/RAG를 우회하는 intent에 대해 bypass_gate의 고정 응답을 반환한다.
     """
 
     intent = state.get("intent")
+    answer = get_bypass_response(intent)
 
-    if intent == INTENT_GREETING:
-        answer = GREETING_MESSAGE
-    elif intent == INTENT_SMALLTALK:
-        answer = SMALLTALK_MESSAGE
-    elif intent == INTENT_IRRELEVANT:
-        answer = IRRELEVANT_MESSAGE
-    elif intent == INTENT_NOISE:
-        answer = NOISE_MESSAGE
-    else:
+    if answer is None:
         answer = build_clarification_message()
         state["needs_clarification"] = True
         state["clarification_options"] = CLARIFICATION_OPTIONS
@@ -238,9 +227,6 @@ def _find_style_code_from_message(
 ) -> str | None:
     """
     사용자 질문에 이전 추천 스타일명이 포함되어 있으면 해당 style_code를 찾는다.
-
-    style_code는 검색 filter에만 사용하고,
-    최종 답변에는 노출하지 않는다.
     """
 
     for recommendation in previous_recommendations:
@@ -363,11 +349,9 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
         category=category,
     )
 
-    # applied_style_key로 추천 스타일이 지정된 경우에는 추천 목록 기반 피드백으로 본다.
     if detected_style and applied_style_key:
         detected_style_is_recommended = True
 
-    # 추천 목록 안팎의 스타일을 직접 언급한 경우에는 피드백 상담으로 처리한다.
     if detected_style and intent in {
         INTENT_UNCLEAR,
         INTENT_GREETING,
@@ -589,8 +573,6 @@ def generate_answer_node(state: ChatbotState) -> ChatbotState:
 def update_memory(state: ChatbotState) -> ChatbotState:
     """
     답변 생성 후 chat_history와 user_profile을 업데이트한다.
-
-    초기 구현에서는 DB 저장 없이 state 안의 값만 갱신한다.
     """
 
     user_message = state.get("user_message", "")
