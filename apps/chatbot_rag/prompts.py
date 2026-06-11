@@ -19,18 +19,14 @@ INTENT_GREETING = "greeting"
 INTENT_SMALLTALK = "smalltalk"
 INTENT_IRRELEVANT = "irrelevant"
 INTENT_NOISE = "noise"
-INTENT_MOOD_CHOICE = "mood_choice"
-INTENT_OCCASION_ADVICE = "occasion_advice"
-PENDING_SELECTION_OCCASION_MOOD = "occasion_mood"
-
 
 CATEGORY_HAIR = "hair"
 CATEGORY_MAKEUP = "makeup"
 
 
 MISSING_ANALYSIS_MESSAGE = (
-    "아직 분석 결과가 없어 맞춤 상담을 진행하기 어려워요. "
-    "먼저 헤어 또는 메이크업 분석을 완료한 뒤 다시 질문해 주세요."
+    "아직 추천 결과가 없어 피드백 상담을 진행하기 어려워요. "
+    "먼저 헤어 또는 메이크업 추천 결과를 받은 뒤 다시 질문해 주세요."
 )
 
 
@@ -42,24 +38,8 @@ CLARIFICATION_OPTIONS = [
     "추천 스타일끼리 비교해 보고 싶어요.",
 ]
 
-OCCASION_KEYWORDS = [
-    "소개팅",
-    "데이트",
-    "결혼식",
-    "면접",
-    "출근",
-    "회사",
-    "졸업사진",
-    "증명사진",
-    "상견례",
-    "모임",
-    "행사",
-]
-
 
 INTENT_KEYWORDS = {
-    INTENT_OCCASION_ADVICE: OCCASION_KEYWORDS,
-
     INTENT_STYLE_FIT: [
         "어울",
         "괜찮",
@@ -210,23 +190,23 @@ AMBIGUOUS_MESSAGES = {
 
 
 GREETING_MESSAGE = (
-    "안녕하세요. 추천받은 헤어스타일이나 메이크업에 대해 궁금한 점을 물어봐 주세요."
+    "추천받은 헤어스타일이나 메이크업에 대해 궁금한 점을 물어봐 주세요."
 )
 
 
 SMALLTALK_MESSAGE = (
-    "좋아요. 이어서 헤어스타일이나 메이크업에 대해 궁금한 점을 물어봐 주세요."
+    "좋아요. 추천 결과에 대해 더 궁금한 점이 있으면 이어서 물어봐 주세요."
 )
 
 
 IRRELEVANT_MESSAGE = (
-    "저는 현재 헤어스타일과 메이크업 상담을 도와드리는 챗봇입니다. "
-    "추천받은 스타일, 손질·연출 방법, 유지 관리, 스타일 비교에 대해 질문해 주세요."
+    "저는 추천받은 헤어스타일과 메이크업에 대한 피드백 상담을 도와드리는 챗봇입니다. "
+    "추천 결과의 어울림, 손질·연출 방법, 유지 관리, 스타일 비교에 대해 질문해 주세요."
 )
 
 
 NOISE_MESSAGE = (
-    "질문을 이해하기 어려워요. 헤어스타일이나 메이크업에 대해 조금 더 구체적으로 입력해 주세요."
+    "질문을 이해하기 어려워요. 추천받은 헤어스타일이나 메이크업에 대해 조금 더 구체적으로 입력해 주세요."
 )
 
 
@@ -268,29 +248,6 @@ IRRELEVANT_KEYWORDS = [
     "노래",
 ]
 
-OCCASION_MOOD_OPTIONS = [
-    {
-        "id": "neat_trustworthy",
-        "label": "단정하고 신뢰감 있는 느낌",
-        "mood_keywords": ["단정함", "신뢰감", "깔끔함"],
-    },
-    {
-        "id": "soft_comfortable",
-        "label": "부드럽고 편안한 느낌",
-        "mood_keywords": ["부드러움", "편안함", "자연스러움"],
-    },
-    {
-        "id": "stylish_clean",
-        "label": "세련되고 깔끔한 느낌",
-        "mood_keywords": ["세련됨", "깔끔함", "정돈됨"],
-    },
-    {
-        "id": "natural_effortless",
-        "label": "자연스럽고 꾸미지 않은 느낌",
-        "mood_keywords": ["자연스러움", "내추럴", "담백함"],
-    },
-]
-
 
 NOISE_MESSAGES = {
     "",
@@ -317,21 +274,11 @@ def build_clarification_message() -> str:
 
     return "\n".join(
         [
-            "어떤 상담이 필요하신지 조금만 더 알려주세요.",
+            "추천 결과에 대해 어떤 피드백 상담이 필요하신지 조금만 더 알려주세요.",
             "",
             *option_lines,
         ]
     )
-
-def get_mood_option_by_id(option_id: str | None) -> dict | None:
-    if not option_id:
-        return None
-
-    for option in OCCASION_MOOD_OPTIONS:
-        if option["id"] == option_id:
-            return option
-
-    return None
 
 
 def get_intent_by_keyword(message: str) -> str:
@@ -339,16 +286,12 @@ def get_intent_by_keyword(message: str) -> str:
     간단한 keyword 기반 intent 분류 함수.
 
     핵심 원칙:
-    - 헤어/메이크업 상담 키워드가 있으면 인사말이 포함되어도 상담 intent를 우선한다.
+    - 추천 결과 피드백과 관련된 질문만 상담 intent로 보낸다.
     - 명확한 인사/잡담/범위 밖 질문은 RAG로 보내지 않는다.
     - 애매한 질문은 clarification으로 보낸다.
     """
 
     normalized_message = message.strip().lower()
-
-    occasion = detect_occasion(normalized_message)
-    if occasion:
-        return INTENT_OCCASION_ADVICE
 
     if normalized_message in NOISE_MESSAGES:
         return INTENT_NOISE
@@ -469,8 +412,8 @@ def _get_category_specific_rules(category: str | None) -> str:
     if category == CATEGORY_MAKEUP:
         return "\n".join(
             [
-                "- 현재 질문은 메이크업 상담으로 처리하세요.",
-                "- 메이크업 답변은 퍼스널컬러와 검색된 메이크업 문맥을 기준으로 하세요.",
+                "- 현재 질문은 추천받은 메이크업에 대한 피드백 상담으로 처리하세요.",
+                "- 메이크업 답변은 퍼스널컬러, 이전 추천 메이크업, 검색된 메이크업 문맥을 기준으로 하세요.",
                 "- 얼굴형이나 삼정 비율을 메이크업 추천 근거로 사용하지 마세요.",
                 "- 검색 문맥에 없는 메이크업 그룹을 임의로 새로 추천하지 마세요.",
             ]
@@ -478,21 +421,12 @@ def _get_category_specific_rules(category: str | None) -> str:
 
     return "\n".join(
         [
-            "- 현재 질문은 헤어 상담으로 처리하세요.",
-            "- 헤어 답변은 얼굴형, 삼정 비율, 검색된 헤어 문맥을 기준으로 하세요.",
+            "- 현재 질문은 추천받은 헤어스타일에 대한 피드백 상담으로 처리하세요.",
+            "- 헤어 답변은 얼굴형, 삼정 비율, 이전 추천 헤어스타일, 검색된 헤어 문맥을 기준으로 하세요.",
             "- 퍼스널컬러를 헤어 추천의 주요 근거로 사용하지 마세요.",
             "- 검색 문맥에 없는 헤어스타일을 임의로 새로 추천하지 마세요.",
         ]
     )
-
-def detect_occasion(message: str) -> str | None:
-    normalized_message = message.strip().lower()
-
-    for keyword in OCCASION_KEYWORDS:
-        if keyword.lower() in normalized_message:
-            return keyword
-
-    return None
 
 
 def build_chat_generation_prompt(
@@ -525,18 +459,19 @@ def build_chat_generation_prompt(
     category_specific_rules = _get_category_specific_rules(category)
 
     return f"""
-당신은 앱에서 헤어스타일과 메이크업 관련 후속 질문에 답하는 AI 어시스턴트입니다.
+당신은 앱에서 추천받은 헤어스타일과 메이크업 결과에 대한 피드백 질문에 답하는 AI 어시스턴트입니다.
 
 [기본 원칙]
 1. 사용자의 진단 정보, 최초 분석 결과, 이전 추천 스타일, 최근 대화 흐름을 함께 반영하세요.
-2. 검색된 참고 문맥이 있으면 그 내용을 우선 근거로 사용하세요.
-3. 검색된 참고 문맥이 부족하면 이전 분석 결과와 이전 추천 스타일을 기준으로 보수적으로 답변하세요.
-4. 기본적으로 이전 추천 스타일을 우선 기준으로 답변하세요.
-5. 사용자가 이전 추천 목록 밖의 특정 스타일을 직접 물어본 경우에는 검색된 참고 문맥을 기준으로 그 스타일에 대해서도 답변할 수 있습니다.
-6. 이전 추천 목록 밖의 스타일을 답변할 때는 그 스타일을 "추천받은 스타일"처럼 표현하지 마세요.
-7. style_code, doc_id, metadata key 같은 내부 식별자는 최종 답변에 절대 노출하지 마세요.
-8. 데이터가 부족하면 "현재 모아둔 정보로 먼저 확인해 드리자면," 이라고 표현하세요.
-9. 답변에는 이유를 포함하세요.
+2. 사용자가 새 추천을 요구하더라도 기본적으로 이전 추천 결과에 대한 피드백 범위 안에서 답변하세요.
+3. 검색된 참고 문맥이 있으면 그 내용을 우선 근거로 사용하세요.
+4. 검색된 참고 문맥이 부족하면 이전 분석 결과와 이전 추천 스타일을 기준으로 보수적으로 답변하세요.
+5. 기본적으로 이전 추천 스타일을 우선 기준으로 답변하세요.
+6. 사용자가 이전 추천 목록 밖의 특정 스타일을 직접 물어본 경우에는 검색된 참고 문맥을 기준으로 설명할 수 있지만, 새 추천처럼 확장하지 마세요.
+7. 이전 추천 목록 밖의 스타일을 답변할 때는 그 스타일을 "추천받은 스타일"처럼 표현하지 마세요.
+8. style_code, doc_id, metadata key 같은 내부 식별자는 최종 답변에 절대 노출하지 마세요.
+9. 데이터가 부족하면 "현재 모아둔 정보로 먼저 확인해 드리자면," 이라고 표현하세요.
+10. 답변에는 이유를 포함하세요.
 
 [카테고리별 원칙]
 {category_specific_rules}
@@ -578,11 +513,11 @@ def build_chat_generation_prompt(
 [검색된 참고 문맥]
 {retrieved_context}
 
-[사용자 질문]
+[사용자 피드백 질문]
 {generation_input.user_message}
 
 [답변 작성 지침]
-- 사용자의 질문에 직접 답하세요.
+- 사용자의 피드백 질문에 직접 답하세요.
 - 이전 분석 결과와 추천 스타일을 기준으로 연결감 있게 답하세요.
 - 손질, 연출, 유지관리, 비교 질문이면 장단점을 쉽게 설명하세요.
 - 근거가 부족하면 단정하지 말고 부족하다고 말하세요.
