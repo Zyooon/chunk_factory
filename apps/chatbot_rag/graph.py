@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 
 from apps.chatbot_rag.nodes import (
     ask_clarification,
+    ask_mood_selection,
     check_analysis_exists,
     classify_intent,
     generate_answer_node,
@@ -19,6 +20,7 @@ from apps.chatbot_rag.prompts import (
     CATEGORY_MAKEUP,
     INTENT_GREETING,
     INTENT_IRRELEVANT,
+    INTENT_MOOD_SELECTION,
     INTENT_NOISE,
     INTENT_SMALLTALK,
 )
@@ -44,6 +46,7 @@ def route_after_intent(state: ChatbotState) -> str:
     intent 분류 후 다음 노드를 결정한다.
 
     - non-RAG intent는 고정 응답으로 보낸다.
+    - mood_selection은 선택 UI를 반환한다.
     - unclear는 객관식 재질문으로 보낸다.
     - 나머지 피드백 상담 intent는 RAG 검색으로 보낸다.
     """
@@ -57,6 +60,9 @@ def route_after_intent(state: ChatbotState) -> str:
         INTENT_NOISE,
     }:
         return "generate_non_rag_answer"
+
+    if intent == INTENT_MOOD_SELECTION:
+        return "ask_mood_selection"
 
     if state.get("needs_clarification"):
         return "ask_clarification"
@@ -74,6 +80,7 @@ def build_chatbot_graph():
     graph.add_node("check_analysis_exists", check_analysis_exists)
     graph.add_node("classify_intent", classify_intent)
     graph.add_node("ask_clarification", ask_clarification)
+    graph.add_node("ask_mood_selection", ask_mood_selection)
     graph.add_node("generate_non_rag_answer", generate_non_rag_answer)
     graph.add_node("retrieve_context", retrieve_context)
     graph.add_node("generate_answer", generate_answer_node)
@@ -95,12 +102,14 @@ def build_chatbot_graph():
         route_after_intent,
         {
             "ask_clarification": "ask_clarification",
+            "ask_mood_selection": "ask_mood_selection",
             "generate_non_rag_answer": "generate_non_rag_answer",
             "retrieve_context": "retrieve_context",
         },
     )
 
     graph.add_edge("ask_clarification", "update_memory")
+    graph.add_edge("ask_mood_selection", "update_memory")
     graph.add_edge("generate_non_rag_answer", "update_memory")
     graph.add_edge("retrieve_context", "generate_answer")
     graph.add_edge("generate_answer", "update_memory")
@@ -115,6 +124,7 @@ def run_chatbot(
     feedback_text: str | None = None,
     target_type: str | None = None,
     applied_style_key: str | None = None,
+    selected_option: dict[str, Any] | None = None,
     gender: str,
     face_shape: str,
     face_proportion: str,
@@ -143,6 +153,7 @@ def run_chatbot(
         "user_message": message or "",
         "target_type": normalized_target_type,
         "applied_style_key": applied_style_key,
+        "selected_option": selected_option,
         "gender": gender,
         "face_shape": face_shape,
         "face_proportion": face_proportion,
@@ -161,6 +172,11 @@ def run_chatbot(
         "category": result.get("category"),
         "target_type": result.get("target_type"),
         "applied_style_key": result.get("applied_style_key"),
+        "selection": result.get("selection"),
+        "pending_selection": result.get("pending_selection"),
+        "selected_mood_id": result.get("selected_mood_id"),
+        "selected_mood": result.get("selected_mood"),
+        "selected_mood_keywords": result.get("selected_mood_keywords", []),
         "needs_clarification": result.get("needs_clarification", False),
         "clarification_options": result.get("clarification_options", []),
         "detected_style": result.get("detected_style"),
