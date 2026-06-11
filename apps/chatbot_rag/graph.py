@@ -6,7 +6,6 @@ from langgraph.graph import END, START, StateGraph
 
 from apps.chatbot_rag.nodes import (
     ask_clarification,
-    ask_mood_selection,
     check_analysis_exists,
     classify_intent,
     generate_answer_node,
@@ -16,10 +15,11 @@ from apps.chatbot_rag.nodes import (
 )
 
 from apps.chatbot_rag.prompts import (
+    CATEGORY_HAIR,
+    CATEGORY_MAKEUP,
     INTENT_GREETING,
     INTENT_IRRELEVANT,
     INTENT_NOISE,
-    INTENT_OCCASION_ADVICE,
     INTENT_SMALLTALK,
 )
 
@@ -45,7 +45,7 @@ def route_after_intent(state: ChatbotState) -> str:
 
     - non-RAG intent는 고정 응답으로 보낸다.
     - unclear는 객관식 재질문으로 보낸다.
-    - 나머지 상담 intent는 RAG 검색으로 보낸다.
+    - 나머지 피드백 상담 intent는 RAG 검색으로 보낸다.
     """
 
     intent = state.get("intent")
@@ -57,9 +57,6 @@ def route_after_intent(state: ChatbotState) -> str:
         INTENT_NOISE,
     }:
         return "generate_non_rag_answer"
-    
-    if intent == INTENT_OCCASION_ADVICE:
-        return "ask_mood_selection"
 
     if state.get("needs_clarification"):
         return "ask_clarification"
@@ -81,7 +78,6 @@ def build_chatbot_graph():
     graph.add_node("retrieve_context", retrieve_context)
     graph.add_node("generate_answer", generate_answer_node)
     graph.add_node("update_memory", update_memory)
-    graph.add_node("ask_mood_selection", ask_mood_selection)
 
     graph.add_edge(START, "check_analysis_exists")
 
@@ -99,7 +95,6 @@ def build_chatbot_graph():
         route_after_intent,
         {
             "ask_clarification": "ask_clarification",
-            "ask_mood_selection": "ask_mood_selection",
             "generate_non_rag_answer": "generate_non_rag_answer",
             "retrieve_context": "retrieve_context",
         },
@@ -108,7 +103,6 @@ def build_chatbot_graph():
     graph.add_edge("ask_clarification", "update_memory")
     graph.add_edge("generate_non_rag_answer", "update_memory")
     graph.add_edge("retrieve_context", "generate_answer")
-    graph.add_edge("ask_mood_selection", "update_memory")
     graph.add_edge("generate_answer", "update_memory")
     graph.add_edge("update_memory", END)
 
@@ -117,7 +111,10 @@ def build_chatbot_graph():
 
 def run_chatbot(
     *,
-    user_message: str,
+    user_message: str | None = None,
+    feedback_text: str | None = None,
+    target_type: str | None = None,
+    applied_style_key: str | None = None,
     gender: str,
     face_shape: str,
     face_proportion: str,
@@ -126,18 +123,26 @@ def run_chatbot(
     previous_recommendations: list[dict[str, Any]] | None = None,
     user_profile: dict[str, Any] | None = None,
     chat_history: list[dict[str, str]] | None = None,
-    selected_option: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     외부에서 chatbot_rag를 실행할 때 사용하는 대표 함수.
 
-    API나 CLI에서는 이 함수만 호출하면 된다.
+    현재 챗봇은 추천 결과에 대한 피드백/후속 질문 전용이다.
+    feedback_text를 우선 사용하고, 기존 호출 호환을 위해 user_message도 허용한다.
     """
 
     graph = build_chatbot_graph()
 
+    normalized_target_type = target_type
+    if normalized_target_type not in {CATEGORY_HAIR, CATEGORY_MAKEUP, None}:
+        normalized_target_type = None
+
+    message = feedback_text if feedback_text is not None else user_message
+
     initial_state: ChatbotState = {
-        "user_message": user_message,
+        "user_message": message or "",
+        "target_type": normalized_target_type,
+        "applied_style_key": applied_style_key,
         "gender": gender,
         "face_shape": face_shape,
         "face_proportion": face_proportion,
@@ -146,8 +151,6 @@ def run_chatbot(
         "previous_recommendations": previous_recommendations or [],
         "user_profile": user_profile or {},
         "chat_history": chat_history or [],
-        "selected_option": selected_option,
-        
     }
 
     result = graph.invoke(initial_state)
@@ -156,11 +159,8 @@ def run_chatbot(
         "answer": result.get("answer", ""),
         "intent": result.get("intent"),
         "category": result.get("category"),
-        "selection": result.get("selection"),
-        "pending_selection": result.get("pending_selection"),
-        "selected_mood_id": result.get("selected_mood_id"),
-        "selected_mood": result.get("selected_mood"),
-        "selected_mood_keywords": result.get("selected_mood_keywords", []),
+        "target_type": result.get("target_type"),
+        "applied_style_key": result.get("applied_style_key"),
         "needs_clarification": result.get("needs_clarification", False),
         "clarification_options": result.get("clarification_options", []),
         "detected_style": result.get("detected_style"),
@@ -177,6 +177,5 @@ def run_chatbot(
         ),
         "updated_chat_history": result.get("updated_chat_history", []),
         "updated_user_profile": result.get("updated_user_profile", {}),
-        "detected_occasion": result.get("detected_occasion"),
         "error": result.get("error"),
     }
