@@ -3,8 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from apps.chatbot_rag.noise_filter import is_noise
-from apps.chatbot_rag.prompts import (
+from apps.chatbot_rag.intents import (
     INTENT_COMPARISON,
     INTENT_IRRELEVANT,
     INTENT_MAINTENANCE,
@@ -13,6 +12,7 @@ from apps.chatbot_rag.prompts import (
     INTENT_STYLE_FIT,
     INTENT_STYLING_METHOD,
 )
+from apps.chatbot_rag.noise_filter import is_noise
 
 MODEL_NAME = "jhgan/ko-sroberta-multitask"
 SEMANTIC_INTENT_THRESHOLD = 0.58
