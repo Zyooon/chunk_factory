@@ -21,7 +21,8 @@ from apps.chatbot_rag.selection_options import MOOD_OPTIONS
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 QUESTION_FILE = PROJECT_ROOT / "data" / "test" / "bulk_questions.txt"
 LOG_DIR = Path("logs")
-LOG_FILE = LOG_DIR / "chatbot_rag_bulk_test.log"
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+LOG_FILE = LOG_DIR / f"chatbot_rag_bulk_test_{timestamp}.log"
 
 # True: intent 분류만 테스트한다. RAG/LLM 호출 없음.
 # False: run_chatbot()으로 end-to-end 테스트한다.
