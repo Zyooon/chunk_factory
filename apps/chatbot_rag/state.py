@@ -45,6 +45,14 @@ class ChatbotState(TypedDict, total=False):
     detected_style: dict[str, str] | None
     detected_style_is_recommended: bool
 
+    # mood 선택 UI 흐름
+    selected_option: dict[str, Any] | None
+    selection: dict[str, Any] | None
+    pending_selection: str | None
+    selected_mood_id: str | None
+    selected_mood: str | None
+    selected_mood_keywords: list[str]
+
     # 문맥이 불명확할 때 객관식 재질문에 사용
     needs_clarification: bool
     clarification_options: list[str]
