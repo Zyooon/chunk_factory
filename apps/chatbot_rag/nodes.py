@@ -3,10 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from apps.chatbot_rag.bypass_gate import get_bypass_response
-from apps.chatbot_rag.intent_keywords import (
-    detect_question_category,
-    get_intent_by_keyword,
-)
+from apps.chatbot_rag.intent_classifier import get_intent
+from apps.chatbot_rag.intent_keywords import detect_question_category
 from apps.chatbot_rag.intents import (
     CATEGORY_HAIR,
     CATEGORY_MAKEUP,
@@ -60,6 +58,7 @@ def check_analysis_exists(state: ChatbotState) -> ChatbotState:
         return state
 
     state["intent"] = INTENT_MISSING_ANALYSIS
+    state["intent_debug"] = {"classifier": "system", "reason": "missing_analysis"}
     state["category"] = state.get("target_type") or CATEGORY_HAIR
     state["needs_clarification"] = False
     state["answer"] = MISSING_ANALYSIS_MESSAGE
@@ -74,6 +73,7 @@ def check_analysis_exists(state: ChatbotState) -> ChatbotState:
     state["retrieval_info"] = {
         "retrieved_count": 0,
         "fallback_stage": "none",
+        "intent_debug": state.get("intent_debug"),
     }
 
     return state
@@ -98,6 +98,7 @@ def ask_clarification(state: ChatbotState) -> ChatbotState:
         "used_filter": {},
         "skipped_rag": True,
         "skip_reason": state.get("intent"),
+        "intent_debug": state.get("intent_debug"),
     }
 
     return state
@@ -142,6 +143,7 @@ def ask_mood_selection(state: ChatbotState) -> ChatbotState:
         "skipped_rag": True,
         "skip_reason": state.get("intent"),
         "pending_selection": PENDING_SELECTION_MOOD,
+        "intent_debug": state.get("intent_debug"),
     }
 
     return state
@@ -174,6 +176,7 @@ def generate_non_rag_answer(state: ChatbotState) -> ChatbotState:
         "used_filter": {},
         "skipped_rag": True,
         "skip_reason": intent,
+        "intent_debug": state.get("intent_debug"),
     }
 
     return state
@@ -308,6 +311,10 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
 
             if mood_option:
                 state["intent"] = INTENT_MOOD_CHOICE
+                state["intent_debug"] = {
+                    "classifier": "selection",
+                    "selected_option_id": selected_option_id,
+                }
                 state["category"] = category
                 state["selected_mood_id"] = mood_option["id"]
                 state["selected_mood"] = mood_option["label"]
@@ -318,7 +325,8 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
                 state["selection"] = None
                 return state
 
-    intent = get_intent_by_keyword(user_message)
+    intent, intent_debug = get_intent(user_message)
+    state["intent_debug"] = intent_debug
 
     detected_style = _find_recommended_style_by_key(
         applied_style_key=applied_style_key,
@@ -476,6 +484,7 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             if retrieval_result.fallback_stage is not None
             else "none",
             "used_filter": retrieval_result.used_filter,
+            "intent_debug": state.get("intent_debug"),
         }
 
     except Exception as exc:
@@ -494,6 +503,7 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             "selected_mood": selected_mood,
             "retrieved_count": 0,
             "fallback_stage": "none",
+            "intent_debug": state.get("intent_debug"),
         }
         state["error"] = f"retrieval_failed: {exc}"
 
@@ -571,6 +581,7 @@ def generate_answer_node(state: ChatbotState) -> ChatbotState:
         else "none",
         "used_filter": generation_result.retrieval_result.used_filter,
         "model_name": generation_result.model_name,
+        "intent_debug": state.get("intent_debug"),
     }
 
     return state
