@@ -33,6 +33,12 @@ MOOD_SELECTION_KEYWORDS = [
     "깔끔하게",
     "자연스럽게",
     "너무 세 보이지",
+    "단정해 보",
+    "단정한 느낌",
+    "단정한 인상",
+    "꾸미지 않은 느낌",
+    "자연스럽고 꾸미지 않은",
+    "느낌으로 가고 싶",
     "어떤 느낌",
     "어떤 분위기",
     "어떤 이미지로",
@@ -53,11 +59,23 @@ COMPARISON_PRIORITY_PHRASES = [
     "둘 중",
 ]
 
+MOOD_PRIORITY_PHRASES = [
+    "단정해 보",
+    "단정한 느낌",
+    "단정한 인상",
+    "꾸미지 않은 느낌",
+    "자연스럽고 꾸미지 않은",
+    "느낌으로 가고 싶",
+    "분위기 맞출",
+    "면접용으로 바꾸",
+    "메이크업을 면접용",
+]
+
 STYLE_FIT_PRIORITY_PHRASES = [
+    "출근할 때도 괜찮",
+    "출근할 때 괜찮",
     "데일리로 하기 괜찮",
     "데일리로 괜찮",
-    "면접 볼 때",
-    "이 머리 해도 단정",
     "이 스타일 괜찮",
     "스타일인가요",
 ]
@@ -298,6 +316,9 @@ def get_intent_by_keyword(message: str) -> str:
 
     if _has_any(normalized_message, COMPARISON_PRIORITY_PHRASES):
         return INTENT_COMPARISON
+
+    if _has_any(normalized_message, MOOD_PRIORITY_PHRASES):
+        return INTENT_MOOD_SELECTION
 
     if _has_any(normalized_message, STYLE_FIT_PRIORITY_PHRASES):
         return INTENT_STYLE_FIT
