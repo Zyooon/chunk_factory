@@ -7,8 +7,8 @@ from typing import Any
 from apps.chatbot_rag.graph import run_chatbot
 
 
-BASE_DIR = Path(__file__).resolve().parent
-QUESTION_FILE = BASE_DIR / "data" / "test" / "bulk_questions.txt"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+QUESTION_FILE = PROJECT_ROOT / "data" / "test" / "bulk_questions.txt"
 LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "chatbot_rag_bulk_test.log"
 
