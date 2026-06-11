@@ -19,6 +19,10 @@ INTENT_GREETING = "greeting"
 INTENT_SMALLTALK = "smalltalk"
 INTENT_IRRELEVANT = "irrelevant"
 INTENT_NOISE = "noise"
+INTENT_MOOD_CHOICE = "mood_choice"
+INTENT_OCCASION_ADVICE = "occasion_advice"
+PENDING_SELECTION_OCCASION_MOOD = "occasion_mood"
+
 
 
 CATEGORY_HAIR = "hair"
@@ -39,8 +43,24 @@ CLARIFICATION_OPTIONS = [
     "추천 스타일끼리 비교해 보고 싶어요.",
 ]
 
+OCCASION_KEYWORDS = [
+    "소개팅",
+    "데이트",
+    "결혼식",
+    "면접",
+    "출근",
+    "회사",
+    "졸업사진",
+    "증명사진",
+    "상견례",
+    "모임",
+    "행사",
+]
+
 
 INTENT_KEYWORDS = {
+    INTENT_OCCASION_ADVICE: OCCASION_KEYWORDS,
+
     INTENT_STYLE_FIT: [
         "어울",
         "괜찮",
@@ -222,6 +242,29 @@ IRRELEVANT_KEYWORDS = [
     "노래",
 ]
 
+OCCASION_MOOD_OPTIONS = [
+    {
+        "id": "neat_trustworthy",
+        "label": "단정하고 신뢰감 있는 느낌",
+        "mood_keywords": ["단정함", "신뢰감", "깔끔함"],
+    },
+    {
+        "id": "soft_comfortable",
+        "label": "부드럽고 편안한 느낌",
+        "mood_keywords": ["부드러움", "편안함", "자연스러움"],
+    },
+    {
+        "id": "stylish_clean",
+        "label": "세련되고 깔끔한 느낌",
+        "mood_keywords": ["세련됨", "깔끔함", "정돈됨"],
+    },
+    {
+        "id": "natural_effortless",
+        "label": "자연스럽고 꾸미지 않은 느낌",
+        "mood_keywords": ["자연스러움", "내추럴", "담백함"],
+    },
+]
+
 
 NOISE_MESSAGES = {
     "",
@@ -254,6 +297,16 @@ def build_clarification_message() -> str:
         ]
     )
 
+def get_mood_option_by_id(option_id: str | None) -> dict | None:
+    if not option_id:
+        return None
+
+    for option in OCCASION_MOOD_OPTIONS:
+        if option["id"] == option_id:
+            return option
+
+    return None
+
 
 def get_intent_by_keyword(message: str) -> str:
     """
@@ -266,6 +319,10 @@ def get_intent_by_keyword(message: str) -> str:
     """
 
     normalized_message = message.strip().lower()
+
+    occasion = detect_occasion(normalized_message)
+    if occasion:
+        return INTENT_OCCASION_ADVICE
 
     if normalized_message in NOISE_MESSAGES:
         return INTENT_NOISE
@@ -399,6 +456,35 @@ def _get_category_specific_rules(category: str | None) -> str:
             "- 헤어 답변은 얼굴형, 삼정 비율, 검색된 헤어 문맥을 기준으로 하세요.",
             "- 퍼스널컬러를 헤어 추천의 주요 근거로 사용하지 마세요.",
             "- 검색 문맥에 없는 헤어스타일을 임의로 새로 추천하지 마세요.",
+        ]
+    )
+
+def detect_occasion(message: str) -> str | None:
+    normalized_message = message.strip().lower()
+
+    for keyword in OCCASION_KEYWORDS:
+        if keyword.lower() in normalized_message:
+            return keyword
+
+    return None
+
+
+def build_occasion_mood_selection_message(occasion: str | None = None) -> str:
+    option_lines = [
+        f"{option['number']}. {option['label']}"
+        for option in OCCASION_MOOD_OPTIONS
+    ]
+
+    if occasion:
+        title = f"{occasion}이라면 어떤 분위기로 보이고 싶은지 먼저 골라주세요."
+    else:
+        title = "어떤 분위기로 보이고 싶은지 먼저 골라주세요."
+
+    return "\n".join(
+        [
+            title,
+            "",
+            *option_lines,
         ]
     )
 
@@ -537,3 +623,4 @@ def format_detected_style_for_prompt(
             f"- 추천 목록 포함 여부: {relation_text}",
         ]
     )
+

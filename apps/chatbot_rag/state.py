@@ -41,6 +41,12 @@ class ChatbotState(TypedDict, total=False):
     detected_style: dict[str, str] | None
     detected_style_is_recommended: bool
 
+    # 상황 질문 및 후속 선택 흐름
+    detected_occasion: str | None
+    pending_selection: str | None
+    selected_mood: str | None
+
+
     # 문맥이 불명확할 때 객관식 재질문에 사용
     needs_clarification: bool
     clarification_options: list[str]
@@ -60,3 +66,9 @@ class ChatbotState(TypedDict, total=False):
     # 업데이트된 대화 기록/유저 정보
     updated_chat_history: list[dict[str, str]]
     updated_user_profile: dict[str, Any]
+
+    selected_option: dict[str, Any] | None
+    selection: dict[str, Any] | None
+    selected_mood_id: str | None
+    selected_mood_keywords: list[str]
+

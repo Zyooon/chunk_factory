@@ -100,6 +100,13 @@ def extract_simple_user_preferences(
 
     return preferences
 
+def clear_pending_selection(user_profile: dict[str, Any]) -> dict[str, Any]:
+    updated_profile = dict(user_profile)
+
+    updated_profile.pop("pending_selection", None)
+
+    return updated_profile
+
 
 def merge_user_profile(
     user_profile: dict[str, Any] | None,
@@ -111,9 +118,12 @@ def merge_user_profile(
     같은 key가 있으면 최신 값을 우선한다.
     """
 
-    updated_profile = dict(user_profile or {})
+    merged = dict(user_profile)
 
     for key, value in new_preferences.items():
-        updated_profile[key] = value
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
 
-    return updated_profile
+    return merged
