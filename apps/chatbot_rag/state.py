@@ -14,8 +14,12 @@ class ChatbotState(TypedDict, total=False):
         각 노드가 필요한 값을 순차적으로 추가할 수 있다.
     """
 
-    # 현재 사용자 질문
+    # 현재 사용자 피드백 질문
     user_message: str
+
+    # 피드백 대상
+    target_type: str | None
+    applied_style_key: str | None
 
     # 사용자 진단 정보
     gender: str
@@ -37,15 +41,9 @@ class ChatbotState(TypedDict, total=False):
     intent: str
     category: str
 
-    # 사용자 메시지에서 감지된 헤어스타일 또는 메이크업 스타일
+    # 사용자 메시지 또는 applied_style_key에서 감지된 헤어스타일 또는 메이크업 스타일
     detected_style: dict[str, str] | None
     detected_style_is_recommended: bool
-
-    # 상황 질문 및 후속 선택 흐름
-    detected_occasion: str | None
-    pending_selection: str | None
-    selected_mood: str | None
-
 
     # 문맥이 불명확할 때 객관식 재질문에 사용
     needs_clarification: bool
@@ -66,9 +64,3 @@ class ChatbotState(TypedDict, total=False):
     # 업데이트된 대화 기록/유저 정보
     updated_chat_history: list[dict[str, str]]
     updated_user_profile: dict[str, Any]
-
-    selected_option: dict[str, Any] | None
-    selection: dict[str, Any] | None
-    selected_mood_id: str | None
-    selected_mood_keywords: list[str]
-
