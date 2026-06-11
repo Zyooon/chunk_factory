@@ -469,26 +469,6 @@ def detect_occasion(message: str) -> str | None:
     return None
 
 
-def build_occasion_mood_selection_message(occasion: str | None = None) -> str:
-    option_lines = [
-        f"{option['number']}. {option['label']}"
-        for option in OCCASION_MOOD_OPTIONS
-    ]
-
-    if occasion:
-        title = f"{occasion}이라면 어떤 분위기로 보이고 싶은지 먼저 골라주세요."
-    else:
-        title = "어떤 분위기로 보이고 싶은지 먼저 골라주세요."
-
-    return "\n".join(
-        [
-            title,
-            "",
-            *option_lines,
-        ]
-    )
-
-
 def build_chat_generation_prompt(
     generation_input: ChatGenerationInput,
 ) -> str:
