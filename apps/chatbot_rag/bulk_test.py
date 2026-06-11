@@ -8,7 +8,13 @@ from apps.chatbot_rag.bypass_gate import should_bypass_llm
 from apps.chatbot_rag.graph import run_chatbot
 from apps.chatbot_rag.intent_classifier import get_intent
 from apps.chatbot_rag.intent_keywords import detect_question_category
-from apps.chatbot_rag.intents import INTENT_MOOD_CHOICE, INTENT_MOOD_SELECTION, PENDING_SELECTION_MOOD
+from apps.chatbot_rag.intents import (
+    CATEGORY_HAIR,
+    CATEGORY_MAKEUP,
+    INTENT_MOOD_CHOICE,
+    INTENT_MOOD_SELECTION,
+    PENDING_SELECTION_MOOD,
+)
 from apps.chatbot_rag.selection_options import MOOD_OPTIONS
 
 
@@ -18,22 +24,54 @@ LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "chatbot_rag_bulk_test.log"
 
 # True: intent 분류만 테스트한다. RAG/LLM 호출 없음.
-# False: 기존처럼 run_chatbot()으로 end-to-end 테스트한다.
+# False: run_chatbot()으로 end-to-end 테스트한다.
 INTENT_ONLY = True
 
 
-COMMON_INPUT = {
+HAIR_INPUT = {
+    "target_type": CATEGORY_HAIR,
+    "applied_style_key": "m-08",
     "gender": "남성",
     "face_shape": "계란형",
     "face_proportion": "균형",
+    "personal_color": "",
     "previous_analysis": (
         "계란형 얼굴과 균형 잡힌 삼정 비율입니다. "
         "하이앤타이트, 댄디, 아이비리그가 추천되었습니다."
     ),
     "previous_recommendations": [
-        {"category": "hair", "style_name": "하이앤타이트", "style_code": "m-02"},
-        {"category": "hair", "style_name": "댄디", "style_code": "m-08"},
-        {"category": "hair", "style_name": "아이비리그", "style_code": "m-03"},
+        {"category": CATEGORY_HAIR, "style_name": "하이앤타이트", "style_code": "m-02"},
+        {"category": CATEGORY_HAIR, "style_name": "댄디", "style_code": "m-08"},
+        {"category": CATEGORY_HAIR, "style_name": "아이비리그", "style_code": "m-03"},
+    ],
+    "user_profile": {},
+    "chat_history": [],
+}
+
+MAKEUP_INPUT = {
+    "target_type": CATEGORY_MAKEUP,
+    "applied_style_key": "summer_cool_daily",
+    "gender": "여성",
+    "face_shape": "",
+    "face_proportion": "",
+    "personal_color": "여름쿨",
+    "previous_analysis": (
+        "여름쿨 퍼스널컬러입니다. "
+        "맑고 차분한 로즈 계열 데일리 메이크업이 추천되었습니다."
+    ),
+    "previous_recommendations": [
+        {
+            "category": CATEGORY_MAKEUP,
+            "style_name": "로즈 데일리 메이크업",
+            "style_code": "summer_cool_daily",
+            "makeup_group": "rose_daily",
+        },
+        {
+            "category": CATEGORY_MAKEUP,
+            "style_name": "쿨톤 오피스 메이크업",
+            "style_code": "summer_cool_office",
+            "makeup_group": "cool_office",
+        },
     ],
     "user_profile": {},
     "chat_history": [],
@@ -48,46 +86,76 @@ TWO_TURN_SELECTED_OPTION = {
 }
 
 
-TWO_TURN_FIRST_QUESTION = "소개팅에 맞게 어떤 분위기로 가져가면 좋을까?"
+HAIR_TWO_TURN_FIRST_QUESTION = "소개팅에 맞게 어떤 분위기로 가져가면 좋을까?"
+MAKEUP_TWO_TURN_FIRST_QUESTION = "소개팅에 맞게 메이크업 분위기를 어떻게 잡으면 좋아?"
 TWO_TURN_SECOND_MESSAGE = "부드럽고 편안한 느낌"
 
 
-def load_questions(path: Path) -> list[str]:
-    """
-    질문 파일에서 테스트 질문을 한 줄씩 읽는다.
+def _infer_section_target_type(comment_line: str, current_target_type: str) -> str:
+    normalized = comment_line.lower()
 
-    빈 줄과 #으로 시작하는 주석 줄은 제외한다.
+    if "메이크업" in comment_line or "makeup" in normalized:
+        return CATEGORY_MAKEUP
+
+    if "헤어" in comment_line or "hair" in normalized:
+        return CATEGORY_HAIR
+
+    if any(
+        keyword in comment_line
+        for keyword in ["어울림", "손질", "유지", "비교", "mood", "분위기"]
+    ):
+        return CATEGORY_HAIR
+
+    return current_target_type
+
+
+def load_questions(path: Path) -> list[dict[str, str]]:
+    """
+    질문 파일에서 테스트 질문을 읽는다.
+
+    # 헤어 또는 # 메이크업 섹션 주석을 기준으로 target_type을 고정한다.
+    실제 서비스에서는 헤어 챗봇과 메이크업 챗봇이 분리되어 있으므로
+    문장만 보고 category를 추정하지 않는다.
     """
 
     if not path.exists():
         raise FileNotFoundError(f"질문 파일을 찾을 수 없습니다: {path}")
 
-    questions: list[str] = []
+    cases: list[dict[str, str]] = []
+    current_target_type = CATEGORY_HAIR
 
     for line in path.read_text(encoding="utf-8").splitlines():
-        question = line.strip()
+        text = line.strip()
 
-        if not question:
+        if not text:
             continue
 
-        if question.startswith("#"):
+        if text.startswith("#"):
+            current_target_type = _infer_section_target_type(text, current_target_type)
             continue
 
-        questions.append(question)
+        cases.append(
+            {
+                "question": text,
+                "target_type": current_target_type,
+            }
+        )
 
-    return questions
+    return cases
+
+
+def get_input_for_target(target_type: str | None) -> dict[str, Any]:
+    if target_type == CATEGORY_MAKEUP:
+        return dict(MAKEUP_INPUT)
+
+    return dict(HAIR_INPUT)
 
 
 def count_sentence_like_units(text: str) -> int:
-    """
-    답변이 너무 길어지는지 대략 확인하기 위한 간단한 문장 수 계산.
-    """
-
     if not text:
         return 0
 
     normalized = text.replace("\n", " ").strip()
-
     count = 0
 
     for marker in [".", "?", "!", "요.", "다."]:
@@ -110,17 +178,16 @@ def get_selection_summary(result: dict[str, Any]) -> str:
     )
 
 
-def build_intent_only_result(question: str) -> dict[str, Any]:
+def build_intent_only_result(question: str, target_type: str | None) -> dict[str, Any]:
     intent, intent_debug = get_intent(question)
-    category = detect_question_category(question)
-    skipped_rag = True
-    skip_reason = "intent_only"
+    category = target_type or detect_question_category(question)
 
     result: dict[str, Any] = {
         "answer": "",
         "intent": intent,
         "intent_debug": intent_debug,
         "category": category,
+        "target_type": target_type,
         "needs_clarification": False,
         "detected_style": None,
         "detected_style_is_recommended": False,
@@ -130,8 +197,10 @@ def build_intent_only_result(question: str) -> dict[str, Any]:
         "selected_mood": None,
         "selected_mood_keywords": [],
         "retrieval_info": {
-            "skipped_rag": skipped_rag,
-            "skip_reason": skip_reason,
+            "category": category,
+            "target_type": target_type,
+            "skipped_rag": True,
+            "skip_reason": "intent_only",
             "retrieved_count": 0,
             "fallback_stage": "none",
             "intent_debug": intent_debug,
@@ -163,6 +232,7 @@ def format_result_log(
     index: int,
     total: int,
     question: str,
+    target_type: str | None,
     result: dict[str, Any],
 ) -> str:
     retrieval_info = result.get("retrieval_info", {})
@@ -176,6 +246,7 @@ def format_result_log(
         [
             "=" * 100,
             f"[{index}/{total}] 질문: {question}",
+            f"target_type: {target_type}",
             f"intent: {result.get('intent')}",
             f"intent_debug: {intent_debug}",
             f"category: {result.get('category')}",
@@ -205,6 +276,8 @@ def format_result_log(
 
 def format_two_turn_log(
     *,
+    label: str,
+    first_question: str,
     first_result: dict[str, Any],
     second_result: dict[str, Any],
 ) -> str:
@@ -214,12 +287,13 @@ def format_two_turn_log(
     return "\n".join(
         [
             "=" * 100,
-            "[2턴 mood 선택 테스트]",
+            f"[2턴 mood 선택 테스트 - {label}]",
             "",
             "[1턴 입력]",
-            TWO_TURN_FIRST_QUESTION,
+            first_question,
             "",
             "[1턴 결과]",
+            f"target_type: {first_result.get('target_type')}",
             f"intent: {first_result.get('intent')}",
             f"intent_debug: {first_result.get('intent_debug')}",
             f"category: {first_result.get('category')}",
@@ -237,6 +311,7 @@ def format_two_turn_log(
             f"selected_option: {TWO_TURN_SELECTED_OPTION}",
             "",
             "[2턴 결과]",
+            f"target_type: {second_result.get('target_type')}",
             f"intent: {second_result.get('intent')}",
             f"intent_debug: {second_result.get('intent_debug')}",
             f"category: {second_result.get('category')}",
@@ -257,9 +332,14 @@ def format_two_turn_log(
     )
 
 
-def run_mood_two_turn_test() -> tuple[dict[str, Any], dict[str, Any]]:
+def run_mood_two_turn_test(
+    *,
+    label: str,
+    target_type: str,
+    first_question: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     if INTENT_ONLY:
-        first_result = build_intent_only_result(TWO_TURN_FIRST_QUESTION)
+        first_result = build_intent_only_result(first_question, target_type)
         second_result = {
             "answer": "",
             "intent": INTENT_MOOD_CHOICE,
@@ -267,13 +347,16 @@ def run_mood_two_turn_test() -> tuple[dict[str, Any], dict[str, Any]]:
                 "classifier": "selection",
                 "selected_option_id": TWO_TURN_SELECTED_OPTION["id"],
             },
-            "category": "hair",
+            "category": target_type,
+            "target_type": target_type,
             "pending_selection": None,
             "selection": None,
             "selected_mood_id": TWO_TURN_SELECTED_OPTION["id"],
             "selected_mood": TWO_TURN_SELECTED_OPTION["label"],
             "selected_mood_keywords": ["부드러움", "편안함", "자연스러움"],
             "retrieval_info": {
+                "category": target_type,
+                "target_type": target_type,
                 "skipped_rag": True,
                 "skip_reason": "intent_only",
                 "retrieved_count": 0,
@@ -283,30 +366,30 @@ def run_mood_two_turn_test() -> tuple[dict[str, Any], dict[str, Any]]:
         }
         return first_result, second_result
 
+    first_input = get_input_for_target(target_type)
     first_result = run_chatbot(
-        user_message=TWO_TURN_FIRST_QUESTION,
-        **COMMON_INPUT,
+        user_message=first_question,
+        **first_input,
     )
 
+    second_input = get_input_for_target(target_type)
     second_result = run_chatbot(
         user_message=TWO_TURN_SECOND_MESSAGE,
-        gender=COMMON_INPUT["gender"],
-        face_shape=COMMON_INPUT["face_shape"],
-        face_proportion=COMMON_INPUT["face_proportion"],
-        previous_analysis=COMMON_INPUT["previous_analysis"],
-        previous_recommendations=COMMON_INPUT["previous_recommendations"],
-        user_profile={
-            "pending_selection": first_result.get("pending_selection"),
+        **{
+            **second_input,
+            "user_profile": {
+                "pending_selection": first_result.get("pending_selection"),
+            },
+            "chat_history": first_result.get("updated_chat_history", []),
+            "selected_option": TWO_TURN_SELECTED_OPTION,
         },
-        chat_history=first_result.get("updated_chat_history", []),
-        selected_option=TWO_TURN_SELECTED_OPTION,
     )
 
     return first_result, second_result
 
 
 def main() -> None:
-    questions = load_questions(QUESTION_FILE)
+    cases = load_questions(QUESTION_FILE)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -316,31 +399,36 @@ def main() -> None:
         "=" * 100,
         f"chatbot_rag bulk test started_at={started_at}",
         f"question_file={QUESTION_FILE}",
-        f"total_questions={len(questions)}",
+        f"total_questions={len(cases)}",
         f"intent_only={INTENT_ONLY}",
+        "hair_makeup_split=True",
         "=" * 100,
         "",
     ]
 
-    total = len(questions)
+    total = len(cases)
 
-    for index, question in enumerate(questions, start=1):
-        print(f"[{index}/{total}] 테스트 중: {question}")
+    for index, case in enumerate(cases, start=1):
+        question = case["question"]
+        target_type = case.get("target_type") or CATEGORY_HAIR
+        print(f"[{index}/{total}] 테스트 중: ({target_type}) {question}")
 
         try:
             if INTENT_ONLY:
-                result = build_intent_only_result(question)
+                result = build_intent_only_result(question, target_type)
             else:
+                chatbot_input = get_input_for_target(target_type)
                 result = run_chatbot(
                     user_message=question,
-                    **COMMON_INPUT,
+                    **chatbot_input,
                 )
         except Exception as exc:
             result = {
                 "answer": "",
                 "intent": None,
                 "intent_debug": None,
-                "category": None,
+                "category": target_type,
+                "target_type": target_type,
                 "needs_clarification": False,
                 "detected_style": None,
                 "detected_style_is_recommended": False,
@@ -352,6 +440,7 @@ def main() -> None:
             index=index,
             total=total,
             question=question,
+            target_type=target_type,
             result=result,
         )
 
@@ -361,6 +450,7 @@ def main() -> None:
         intent_debug = result.get("intent_debug") or retrieval_info.get("intent_debug") or {}
         print(
             "  → "
+            f"target={target_type}, "
             f"intent={result.get('intent')}, "
             f"classifier={intent_debug.get('classifier')}, "
             f"score={intent_debug.get('semantic_score')}, "
@@ -370,41 +460,56 @@ def main() -> None:
             f"error={result.get('error')}"
         )
 
-    print("[2턴 mood 선택 테스트] 테스트 중")
+    two_turn_tests = [
+        ("hair", CATEGORY_HAIR, HAIR_TWO_TURN_FIRST_QUESTION),
+        ("makeup", CATEGORY_MAKEUP, MAKEUP_TWO_TURN_FIRST_QUESTION),
+    ]
 
-    try:
-        first_result, second_result = run_mood_two_turn_test()
-    except Exception as exc:
-        first_result = {
-            "answer": "",
-            "intent": None,
-            "category": None,
-            "retrieval_info": {},
-            "error": f"{type(exc).__name__}: {exc}",
-        }
-        second_result = {
-            "answer": "",
-            "intent": None,
-            "category": None,
-            "retrieval_info": {},
-            "error": f"{type(exc).__name__}: {exc}",
-        }
+    for label, target_type, first_question in two_turn_tests:
+        print(f"[2턴 mood 선택 테스트 - {label}] 테스트 중")
 
-    logs.append(
-        format_two_turn_log(
-            first_result=first_result,
-            second_result=second_result,
+        try:
+            first_result, second_result = run_mood_two_turn_test(
+                label=label,
+                target_type=target_type,
+                first_question=first_question,
+            )
+        except Exception as exc:
+            first_result = {
+                "answer": "",
+                "intent": None,
+                "category": target_type,
+                "target_type": target_type,
+                "retrieval_info": {},
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            second_result = {
+                "answer": "",
+                "intent": None,
+                "category": target_type,
+                "target_type": target_type,
+                "retrieval_info": {},
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+        logs.append(
+            format_two_turn_log(
+                label=label,
+                first_question=first_question,
+                first_result=first_result,
+                second_result=second_result,
+            )
         )
-    )
 
-    print(
-        "  → "
-        f"first_intent={first_result.get('intent')}, "
-        f"first_pending={first_result.get('pending_selection')}, "
-        f"second_intent={second_result.get('intent')}, "
-        f"selected_mood={second_result.get('selected_mood')}, "
-        f"error={second_result.get('error')}"
-    )
+        print(
+            "  → "
+            f"target={target_type}, "
+            f"first_intent={first_result.get('intent')}, "
+            f"first_pending={first_result.get('pending_selection')}, "
+            f"second_intent={second_result.get('intent')}, "
+            f"selected_mood={second_result.get('selected_mood')}, "
+            f"error={second_result.get('error')}"
+        )
 
     finished_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -415,8 +520,9 @@ def main() -> None:
     LOG_FILE.write_text("\n".join(logs), encoding="utf-8")
 
     print()
-    print(f"테스트 완료: {total}개 + 2턴 mood 선택 테스트 1개")
+    print(f"테스트 완료: {total}개 + 2턴 mood 선택 테스트 {len(two_turn_tests)}개")
     print(f"intent_only={INTENT_ONLY}")
+    print("hair_makeup_split=True")
     print(f"로그 저장 위치: {LOG_FILE}")
 
 
