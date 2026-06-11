@@ -16,17 +16,23 @@ from apps.chatbot_rag.prompts import (
     INTENT_GENERAL_FOLLOWUP,
     INTENT_GREETING,
     INTENT_IRRELEVANT,
+    INTENT_MOOD_CHOICE,
+    INTENT_MOOD_SELECTION,
     INTENT_MISSING_ANALYSIS,
     INTENT_NOISE,
     INTENT_SMALLTALK,
     INTENT_UNCLEAR,
     IRRELEVANT_MESSAGE,
     MISSING_ANALYSIS_MESSAGE,
+    MOOD_OPTIONS,
     NOISE_MESSAGE,
+    PENDING_SELECTION_MOOD,
     SMALLTALK_MESSAGE,
     build_clarification_message,
+    build_mood_selection_title,
     detect_question_category,
     get_intent_by_keyword,
+    get_mood_option_by_id,
 )
 from apps.chatbot_rag.state import ChatbotState
 from apps.chatbot_rag.style_catalog import find_hair_style_in_message
@@ -90,6 +96,50 @@ def ask_clarification(state: ChatbotState) -> ChatbotState:
         "used_filter": {},
         "skipped_rag": True,
         "skip_reason": state.get("intent"),
+    }
+
+    return state
+
+
+def ask_mood_selection(state: ChatbotState) -> ChatbotState:
+    """
+    추천받은 스타일을 어떤 분위기로 가져갈지 선택 UI를 반환한다.
+    """
+
+    state["answer"] = build_mood_selection_title()
+    state["pending_selection"] = PENDING_SELECTION_MOOD
+    state["selected_mood"] = None
+    state["selected_mood_id"] = None
+    state["selected_mood_keywords"] = []
+    state["selection"] = {
+        "type": PENDING_SELECTION_MOOD,
+        "title": "원하는 분위기를 선택해 주세요.",
+        "options": [
+            {
+                "id": option["id"],
+                "label": option["label"],
+                "value": option["label"],
+            }
+            for option in MOOD_OPTIONS
+        ],
+    }
+    state["retrieval_result"] = RetrievalResult(
+        query=state.get("user_message", ""),
+        documents=[],
+        retrieved_count=0,
+        fallback_stage=None,
+        used_filter={},
+    )
+    state["retrieval_info"] = {
+        "category": state.get("category") or state.get("target_type") or CATEGORY_HAIR,
+        "target_type": state.get("target_type"),
+        "applied_style_key": state.get("applied_style_key"),
+        "retrieved_count": 0,
+        "fallback_stage": "none",
+        "used_filter": {},
+        "skipped_rag": True,
+        "skip_reason": state.get("intent"),
+        "pending_selection": PENDING_SELECTION_MOOD,
     }
 
     return state
@@ -250,10 +300,33 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
     personal_color = state.get("personal_color")
     previous_recommendations = state.get("previous_recommendations") or []
     applied_style_key = state.get("applied_style_key")
+    selected_option = state.get("selected_option")
+    user_profile = state.get("user_profile") or {}
 
     target_type = _normalize_target_type(state.get("target_type"))
-    intent = get_intent_by_keyword(user_message)
     category = target_type or detect_question_category(user_message)
+
+    pending_selection = state.get("pending_selection") or user_profile.get("pending_selection")
+    if pending_selection == PENDING_SELECTION_MOOD and selected_option:
+        selected_option_type = selected_option.get("type")
+        selected_option_id = selected_option.get("id")
+
+        if selected_option_type == PENDING_SELECTION_MOOD:
+            mood_option = get_mood_option_by_id(selected_option_id)
+
+            if mood_option:
+                state["intent"] = INTENT_MOOD_CHOICE
+                state["category"] = category
+                state["selected_mood_id"] = mood_option["id"]
+                state["selected_mood"] = mood_option["label"]
+                state["selected_mood_keywords"] = mood_option["mood_keywords"]
+                state["pending_selection"] = None
+                state["needs_clarification"] = False
+                state["clarification_options"] = []
+                state["selection"] = None
+                return state
+
+    intent = get_intent_by_keyword(user_message)
 
     detected_style = _find_recommended_style_by_key(
         applied_style_key=applied_style_key,
@@ -339,6 +412,8 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
     previous_recommendations = state.get("previous_recommendations") or []
     detected_style = state.get("detected_style")
     applied_style_key = state.get("applied_style_key")
+    selected_mood = state.get("selected_mood")
+    selected_mood_keywords = state.get("selected_mood_keywords") or []
 
     if detected_style:
         style_code = detected_style.get("style_code")
@@ -357,10 +432,14 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
         detected_style_name = detected_style.get("style_name", "")
         makeup_group = detected_style.get("makeup_group")
 
+    mood_text = " ".join(selected_mood_keywords)
+
     if category == CATEGORY_MAKEUP:
         query = (
             f"{gender or ''} {personal_color or ''} 퍼스널컬러 "
             f"{detected_style_name} "
+            f"{selected_mood or ''} "
+            f"{mood_text} "
             f"{user_message}"
         ).strip()
         retrieve_kwargs = {
@@ -377,6 +456,8 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             f"{gender or ''} {face_shape or ''} 얼굴형 "
             f"{face_proportion or ''} 삼정 비율 "
             f"{detected_style_name} "
+            f"{selected_mood or ''} "
+            f"{mood_text} "
             f"{user_message}"
         ).strip()
 
@@ -398,6 +479,8 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             "category": category,
             "target_type": state.get("target_type"),
             "applied_style_key": applied_style_key,
+            "selected_mood_id": state.get("selected_mood_id"),
+            "selected_mood": selected_mood,
             "retrieved_count": retrieval_result.retrieved_count,
             "fallback_stage": retrieval_result.fallback_stage
             if retrieval_result.fallback_stage is not None
@@ -417,6 +500,8 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             "category": category,
             "target_type": state.get("target_type"),
             "applied_style_key": applied_style_key,
+            "selected_mood_id": state.get("selected_mood_id"),
+            "selected_mood": selected_mood,
             "retrieved_count": 0,
             "fallback_stage": "none",
         }
@@ -455,6 +540,11 @@ def generate_answer_node(state: ChatbotState) -> ChatbotState:
     if state.get("applied_style_key"):
         user_profile["applied_style_key"] = state.get("applied_style_key")
 
+    if state.get("selected_mood"):
+        user_profile["selected_mood"] = state.get("selected_mood")
+        user_profile["selected_mood_id"] = state.get("selected_mood_id")
+        user_profile["selected_mood_keywords"] = state.get("selected_mood_keywords", [])
+
     generation_input = ChatGenerationInput(
         user_message=state.get("user_message", ""),
         gender=state.get("gender", ""),
@@ -483,6 +573,8 @@ def generate_answer_node(state: ChatbotState) -> ChatbotState:
         "category": state.get("category"),
         "target_type": state.get("target_type"),
         "applied_style_key": state.get("applied_style_key"),
+        "selected_mood_id": state.get("selected_mood_id"),
+        "selected_mood": state.get("selected_mood"),
         "retrieved_count": generation_result.retrieval_result.retrieved_count,
         "fallback_stage": generation_result.retrieval_result.fallback_stage
         if generation_result.retrieval_result.fallback_stage is not None
@@ -511,6 +603,18 @@ def update_memory(state: ChatbotState) -> ChatbotState:
     )
 
     new_preferences = extract_simple_user_preferences(user_message)
+
+    if state.get("pending_selection"):
+        new_preferences["pending_selection"] = state.get("pending_selection")
+
+    if state.get("selected_mood"):
+        new_preferences["selected_mood"] = state.get("selected_mood")
+        new_preferences["selected_mood_id"] = state.get("selected_mood_id")
+        new_preferences["selected_mood_keywords"] = state.get(
+            "selected_mood_keywords",
+            [],
+        )
+        new_preferences["pending_selection"] = None
 
     updated_user_profile = merge_user_profile(
         user_profile=state.get("user_profile") or {},
