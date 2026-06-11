@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from apps.chatbot_rag.prompts import (
+from apps.chatbot_rag.intents import (
     INTENT_COMPARISON,
     INTENT_GREETING,
     INTENT_IRRELEVANT,

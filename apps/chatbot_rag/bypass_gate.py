@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-from apps.chatbot_rag.prompts import (
-    GREETING_MESSAGE,
+from apps.chatbot_rag.intents import (
     INTENT_GREETING,
     INTENT_IRRELEVANT,
     INTENT_MISSING_ANALYSIS,
     INTENT_NOISE,
     INTENT_SMALLTALK,
+)
+from apps.chatbot_rag.static_responses import (
+    GREETING_MESSAGE,
     IRRELEVANT_MESSAGE,
     MISSING_ANALYSIS_MESSAGE,
     NOISE_MESSAGE,
     SMALLTALK_MESSAGE,
 )
 
-
-NON_LLM_INTENTS = {
+NON_LLM_INTENTS: set[str] = {
     INTENT_GREETING,
     INTENT_SMALLTALK,
     INTENT_IRRELEVANT,
@@ -22,7 +23,7 @@ NON_LLM_INTENTS = {
     INTENT_MISSING_ANALYSIS,
 }
 
-NON_LLM_RESPONSES = {
+NON_LLM_RESPONSES: dict[str, str] = {
     INTENT_GREETING: GREETING_MESSAGE,
     INTENT_SMALLTALK: SMALLTALK_MESSAGE,
     INTENT_IRRELEVANT: IRRELEVANT_MESSAGE,

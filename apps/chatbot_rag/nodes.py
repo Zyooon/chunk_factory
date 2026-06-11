@@ -3,32 +3,38 @@ from __future__ import annotations
 from typing import Any
 
 from apps.chatbot_rag.bypass_gate import get_bypass_response
+from apps.chatbot_rag.intent_keywords import (
+    detect_question_category,
+    get_intent_by_keyword,
+)
+from apps.chatbot_rag.intents import (
+    CATEGORY_HAIR,
+    CATEGORY_MAKEUP,
+    INTENT_GENERAL_FOLLOWUP,
+    INTENT_GREETING,
+    INTENT_IRRELEVANT,
+    INTENT_MISSING_ANALYSIS,
+    INTENT_MOOD_CHOICE,
+    INTENT_NOISE,
+    INTENT_SMALLTALK,
+    INTENT_UNCLEAR,
+    PENDING_SELECTION_MOOD,
+)
 from apps.chatbot_rag.memory import (
     append_chat_history,
     extract_simple_user_preferences,
     merge_user_profile,
 )
 from apps.chatbot_rag.makeup_catalog import find_makeup_style_in_message
-from apps.chatbot_rag.prompts import (
-    CATEGORY_HAIR,
-    CATEGORY_MAKEUP,
-    CLARIFICATION_OPTIONS,
-    INTENT_GENERAL_FOLLOWUP,
-    INTENT_GREETING,
-    INTENT_IRRELEVANT,
-    INTENT_MOOD_CHOICE,
-    INTENT_MISSING_ANALYSIS,
-    INTENT_NOISE,
-    INTENT_SMALLTALK,
-    INTENT_UNCLEAR,
-    MISSING_ANALYSIS_MESSAGE,
+from apps.chatbot_rag.selection_options import (
     MOOD_OPTIONS,
-    PENDING_SELECTION_MOOD,
-    build_clarification_message,
     build_mood_selection_title,
-    detect_question_category,
-    get_intent_by_keyword,
     get_mood_option_by_id,
+)
+from apps.chatbot_rag.static_responses import (
+    CLARIFICATION_OPTIONS,
+    MISSING_ANALYSIS_MESSAGE,
+    build_clarification_message,
 )
 from apps.chatbot_rag.state import ChatbotState
 from apps.chatbot_rag.style_catalog import find_hair_style_in_message

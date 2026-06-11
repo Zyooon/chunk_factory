@@ -2,378 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.chatbot_rag.noise_filter import is_noise
+from apps.chatbot_rag.intents import CATEGORY_HAIR, CATEGORY_MAKEUP
 from apps.rag_core.schemas import ChatGenerationInput
 from apps.rag_core.utils import format_documents_as_context
-
-
-INTENT_STYLE_FIT = "style_fit"
-INTENT_STYLING_METHOD = "styling_method"
-INTENT_MAINTENANCE = "maintenance"
-INTENT_COMPARISON = "comparison"
-INTENT_GENERAL_FOLLOWUP = "general_followup"
-INTENT_MOOD_SELECTION = "mood_selection"
-INTENT_MOOD_CHOICE = "mood_choice"
-INTENT_UNCLEAR = "unclear"
-INTENT_MISSING_ANALYSIS = "missing_analysis"
-
-# non-RAG intent
-INTENT_GREETING = "greeting"
-INTENT_SMALLTALK = "smalltalk"
-INTENT_IRRELEVANT = "irrelevant"
-INTENT_NOISE = "noise"
-
-CATEGORY_HAIR = "hair"
-CATEGORY_MAKEUP = "makeup"
-PENDING_SELECTION_MOOD = "mood"
-
-
-MISSING_ANALYSIS_MESSAGE = (
-    "아직 추천 결과가 없어 피드백 상담을 진행하기 어려워요. "
-    "먼저 헤어 또는 메이크업 추천 결과를 받은 뒤 다시 질문해 주세요."
-)
-
-
-CLARIFICATION_OPTIONS = [
-    "추천받은 헤어스타일이 나에게 어울리는지 궁금해요.",
-    "추천받은 헤어스타일의 손질 방법이 궁금해요.",
-    "추천받은 메이크업이 나에게 어울리는지 궁금해요.",
-    "추천받은 메이크업의 연출 방법이 궁금해요.",
-    "추천 스타일끼리 비교해 보고 싶어요.",
-]
-
-MOOD_SELECTION_KEYWORDS = [
-    "분위기",
-    "느낌",
-    "무드",
-    "이미지",
-    "인상",
-    "소개팅에 맞게",
-    "데이트에 맞게",
-    "면접에 맞게",
-    "부드럽게",
-    "차분하게",
-    "세련되게",
-    "깔끔하게",
-    "자연스럽게",
-    "너무 세 보이지",
-    "어떤 느낌",
-    "어떤 분위기",
-]
-
-MOOD_OPTIONS = [
-    {
-        "id": "neat_trustworthy",
-        "label": "단정하고 신뢰감 있는 느낌",
-        "mood_keywords": ["단정함", "신뢰감", "깔끔함"],
-    },
-    {
-        "id": "soft_comfortable",
-        "label": "부드럽고 편안한 느낌",
-        "mood_keywords": ["부드러움", "편안함", "자연스러움"],
-    },
-    {
-        "id": "stylish_clean",
-        "label": "세련되고 깔끔한 느낌",
-        "mood_keywords": ["세련됨", "깔끔함", "정돈됨"],
-    },
-    {
-        "id": "natural_effortless",
-        "label": "자연스럽고 꾸미지 않은 느낌",
-        "mood_keywords": ["자연스러움", "내추럴", "담백함"],
-    },
-]
-
-
-INTENT_KEYWORDS = {
-    INTENT_MOOD_SELECTION: MOOD_SELECTION_KEYWORDS,
-    INTENT_STYLE_FIT: [
-        "어울",
-        "괜찮",
-        "맞아",
-        "어때",
-        "나한테",
-        "잘 맞",
-        "추천받은",
-        "세련",
-        "깔끔",
-        "부드러운",
-        "부드럽",
-        "차분",
-        "어려 보",
-        "성숙",
-        "튀는 건 싫",
-        "바꾸고 싶",
-        "달라지고 싶",
-        "짧은 머리",
-        "기장감",
-        "앞머리",
-        "이마",
-        "얼굴이 길어",
-        "볼살",
-        "고민",
-        "데일리",
-        "뭐가 좋아",
-        "어떤 게 좋아",
-    ],
-    INTENT_STYLING_METHOD: [
-        "손질",
-        "드라이",
-        "고데기",
-        "왁스",
-        "스프레이",
-        "세팅",
-        "스타일링",
-        "말리",
-        "바르는",
-        "바르면",
-        "립",
-        "블러셔",
-        "섀도우",
-        "쉐도우",
-        "베이스",
-        "연출",
-        "화장법",
-        "메이크업법",
-        "사진",
-        "또렷",
-        "어떻게 해야",
-        "어떻게 하면",
-    ],
-    INTENT_MAINTENANCE: [
-        "유지",
-        "관리",
-        "커트",
-        "펌",
-        "주기",
-        "얼마나",
-        "오래",
-        "미용실",
-        "손 많이",
-        "수정",
-        "무너짐",
-        "지속",
-    ],
-    INTENT_COMPARISON: [
-        "비교",
-        "뭐가 더",
-        "어느 게",
-        "어떤 게",
-        "둘 중",
-        "리프랑",
-        "퀴프랑",
-        "댄디랑",
-        "피치랑",
-        "코랄이랑",
-        "로즈랑",
-        "브라운이랑",
-        "vs",
-    ],
-}
-
-
-MAKEUP_CATEGORY_KEYWORDS = [
-    "메이크업",
-    "화장",
-    "립",
-    "블러셔",
-    "치크",
-    "섀도우",
-    "쉐도우",
-    "아이섀도우",
-    "베이스",
-    "톤업",
-    "퍼스널컬러",
-    "봄웜",
-    "여름쿨",
-    "가을웜",
-    "겨울쿨",
-    "피치",
-    "코랄",
-    "주시",
-    "쥬시",
-    "듀이",
-    "내추럴",
-    "로즈",
-    "브라운",
-    "시크",
-    "오피스",
-    "버건디",
-    "글램",
-    "레드",
-]
-
-
-HAIR_CATEGORY_KEYWORDS = [
-    "헤어",
-    "머리",
-    "스타일",
-    "커트",
-    "펌",
-    "앞머리",
-    "옆머리",
-    "정수리",
-    "볼륨",
-    "드라이",
-    "왁스",
-    "스프레이",
-]
-
-
-AMBIGUOUS_MESSAGES = {
-    "이거",
-    "그거",
-    "추천해줘",
-    "어떻게 해",
-    "어떻게 하면 돼",
-    "뭐가 좋아",
-    "괜찮아",
-    "별로야",
-    "좋아",
-}
-
-GREETING_KEYWORDS = [
-    "안녕",
-    "안녕하세요",
-    "하이",
-    "hello",
-    "hi",
-    "반가워",
-    "반갑습니다",
-]
-
-SMALLTALK_KEYWORDS = [
-    "고마워",
-    "감사",
-    "좋아",
-    "알겠어",
-    "오케이",
-    "ㅇㅋ",
-    "네",
-    "응",
-]
-
-IRRELEVANT_KEYWORDS = [
-    "날씨",
-    "주식",
-    "코딩",
-    "파이썬",
-    "게임",
-    "여행",
-    "음식",
-    "맛집",
-    "뉴스",
-    "정치",
-    "영화",
-    "노래",
-]
-
-GREETING_MESSAGE = (
-    "추천받은 헤어스타일이나 메이크업에 대해 궁금한 점을 물어봐 주세요."
-)
-
-SMALLTALK_MESSAGE = (
-    "좋아요. 추천 결과에 대해 더 궁금한 점이 있으면 이어서 물어봐 주세요."
-)
-
-IRRELEVANT_MESSAGE = (
-    "저는 추천받은 헤어스타일과 메이크업에 대한 피드백 상담을 도와드리는 챗봇입니다. "
-    "추천 결과의 어울림, 손질·연출 방법, 유지 관리, 스타일 비교에 대해 질문해 주세요."
-)
-
-NOISE_MESSAGE = (
-    "질문을 이해하기 어려워요. 추천받은 헤어스타일이나 메이크업에 대해 조금 더 구체적으로 입력해 주세요."
-)
-
-
-def build_clarification_message() -> str:
-    """
-    질문 의도가 불명확할 때 사용자에게 보여줄 객관식 재질문 메시지를 만든다.
-    """
-
-    option_lines = [
-        f"{index}. {option}"
-        for index, option in enumerate(CLARIFICATION_OPTIONS, start=1)
-    ]
-
-    return "\n".join(
-        [
-            "추천 결과에 대해 어떤 피드백 상담이 필요하신지 조금만 더 알려주세요.",
-            "",
-            *option_lines,
-        ]
-    )
-
-
-def get_mood_option_by_id(option_id: str | None) -> dict | None:
-    if not option_id:
-        return None
-
-    for option in MOOD_OPTIONS:
-        if option["id"] == option_id:
-            return option
-
-    return None
-
-
-def build_mood_selection_title() -> str:
-    return "추천받은 스타일을 어떤 분위기로 가져가고 싶으신가요?"
-
-
-def get_intent_by_keyword(message: str) -> str:
-    """
-    간단한 keyword 기반 intent 분류 함수.
-
-    1차 정리 단계에서는 noise 판단만 noise_filter로 분리하고,
-    나머지 키워드 분류는 semantic classifier 도입 전까지 fallback으로 유지한다.
-    """
-
-    normalized_message = message.strip().lower()
-
-    if is_noise(normalized_message):
-        return INTENT_NOISE
-
-    if any(keyword in normalized_message for keyword in IRRELEVANT_KEYWORDS):
-        return INTENT_IRRELEVANT
-
-    for intent, keywords in INTENT_KEYWORDS.items():
-        if any(keyword.lower() in normalized_message for keyword in keywords):
-            return intent
-
-    if normalized_message in AMBIGUOUS_MESSAGES:
-        return INTENT_UNCLEAR
-
-    if any(keyword in normalized_message for keyword in GREETING_KEYWORDS):
-        return INTENT_GREETING
-
-    if normalized_message in SMALLTALK_KEYWORDS:
-        return INTENT_SMALLTALK
-
-    return INTENT_UNCLEAR
-
-
-def detect_question_category(message: str) -> str:
-    """
-    사용자 메시지에서 hair/makeup category를 추론한다.
-
-    메이크업 키워드가 명확하면 makeup을 우선한다.
-    둘 다 없으면 hair를 기본값으로 둔다.
-    """
-    normalized_message = message.strip().lower()
-
-    if any(keyword.lower() in normalized_message for keyword in MAKEUP_CATEGORY_KEYWORDS):
-        return CATEGORY_MAKEUP
-
-    if any(keyword.lower() in normalized_message for keyword in HAIR_CATEGORY_KEYWORDS):
-        return CATEGORY_HAIR
-
-    return CATEGORY_HAIR
 
 
 def format_previous_recommendations_for_prompt(
     previous_recommendations: list[dict[str, Any]],
     category: str | None = None,
 ) -> str:
+    """
+    이전 추천 스타일 목록을 프롬프트용 문자열로 변환한다.
+
+    style_code는 내부 식별자이므로 프롬프트에도 전달하지 않는다.
+    category가 주어지면 해당 category 추천만 우선 표시한다.
+    """
+
     if not previous_recommendations:
         return "이전 추천 스타일 정보가 없습니다."
 
@@ -397,6 +41,10 @@ def format_chat_history_for_prompt(
     chat_history: list[dict[str, str]],
     max_messages: int = 10,
 ) -> str:
+    """
+    최근 대화 기록을 프롬프트용 문자열로 변환한다.
+    """
+
     if not chat_history:
         return "최근 대화 기록이 없습니다."
 
@@ -455,6 +103,12 @@ def _get_category_specific_rules(category: str | None) -> str:
 def build_chat_generation_prompt(
     generation_input: ChatGenerationInput,
 ) -> str:
+    """
+    chatbot_rag 답변 생성용 프롬프트.
+
+    chatbot_rag의 말투, 길이, 출력 형식은 이 함수 한 곳에서만 관리한다.
+    """
+
     category = generation_input.category or CATEGORY_HAIR
     category_label = _get_category_label(category)
 
@@ -552,6 +206,12 @@ def format_detected_style_for_prompt(
     detected_style_is_recommended: bool,
     category: str | None = None,
 ) -> str:
+    """
+    사용자 현재 질문에서 감지된 헤어스타일 또는 메이크업 스타일 정보를 프롬프트용 문자열로 변환한다.
+
+    style_code는 내부 식별자이므로 프롬프트에 넣지 않는다.
+    """
+
     category_label = _get_category_label(category)
 
     if not detected_style:

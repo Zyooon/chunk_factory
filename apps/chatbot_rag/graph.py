@@ -16,7 +16,7 @@ from apps.chatbot_rag.nodes import (
     update_memory,
 )
 
-from apps.chatbot_rag.prompts import (
+from apps.chatbot_rag.intents import (
     CATEGORY_HAIR,
     CATEGORY_MAKEUP,
     INTENT_MOOD_SELECTION,
