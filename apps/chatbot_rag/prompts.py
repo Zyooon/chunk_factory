@@ -11,6 +11,8 @@ INTENT_STYLING_METHOD = "styling_method"
 INTENT_MAINTENANCE = "maintenance"
 INTENT_COMPARISON = "comparison"
 INTENT_GENERAL_FOLLOWUP = "general_followup"
+INTENT_MOOD_SELECTION = "mood_selection"
+INTENT_MOOD_CHOICE = "mood_choice"
 INTENT_UNCLEAR = "unclear"
 INTENT_MISSING_ANALYSIS = "missing_analysis"
 
@@ -22,6 +24,7 @@ INTENT_NOISE = "noise"
 
 CATEGORY_HAIR = "hair"
 CATEGORY_MAKEUP = "makeup"
+PENDING_SELECTION_MOOD = "mood"
 
 
 MISSING_ANALYSIS_MESSAGE = (
@@ -38,8 +41,51 @@ CLARIFICATION_OPTIONS = [
     "추천 스타일끼리 비교해 보고 싶어요.",
 ]
 
+MOOD_SELECTION_KEYWORDS = [
+    "분위기",
+    "느낌",
+    "무드",
+    "이미지",
+    "인상",
+    "소개팅에 맞게",
+    "데이트에 맞게",
+    "면접에 맞게",
+    "부드럽게",
+    "차분하게",
+    "세련되게",
+    "깔끔하게",
+    "자연스럽게",
+    "너무 세 보이지",
+    "어떤 느낌",
+    "어떤 분위기",
+]
+
+MOOD_OPTIONS = [
+    {
+        "id": "neat_trustworthy",
+        "label": "단정하고 신뢰감 있는 느낌",
+        "mood_keywords": ["단정함", "신뢰감", "깔끔함"],
+    },
+    {
+        "id": "soft_comfortable",
+        "label": "부드럽고 편안한 느낌",
+        "mood_keywords": ["부드러움", "편안함", "자연스러움"],
+    },
+    {
+        "id": "stylish_clean",
+        "label": "세련되고 깔끔한 느낌",
+        "mood_keywords": ["세련됨", "깔끔함", "정돈됨"],
+    },
+    {
+        "id": "natural_effortless",
+        "label": "자연스럽고 꾸미지 않은 느낌",
+        "mood_keywords": ["자연스러움", "내추럴", "담백함"],
+    },
+]
+
 
 INTENT_KEYWORDS = {
+    INTENT_MOOD_SELECTION: MOOD_SELECTION_KEYWORDS,
     INTENT_STYLE_FIT: [
         "어울",
         "괜찮",
@@ -50,14 +96,11 @@ INTENT_KEYWORDS = {
         "추천받은",
         "세련",
         "깔끔",
-        "이미지",
-        "분위기",
         "부드러운",
         "부드럽",
         "차분",
         "어려 보",
         "성숙",
-        "자연스럽게",
         "튀는 건 싫",
         "바꾸고 싶",
         "달라지고 싶",
@@ -279,6 +322,21 @@ def build_clarification_message() -> str:
             *option_lines,
         ]
     )
+
+
+def get_mood_option_by_id(option_id: str | None) -> dict | None:
+    if not option_id:
+        return None
+
+    for option in MOOD_OPTIONS:
+        if option["id"] == option_id:
+            return option
+
+    return None
+
+
+def build_mood_selection_title() -> str:
+    return "추천받은 스타일을 어떤 분위기로 가져가고 싶으신가요?"
 
 
 def get_intent_by_keyword(message: str) -> str:
@@ -519,6 +577,7 @@ def build_chat_generation_prompt(
 [답변 작성 지침]
 - 사용자의 피드백 질문에 직접 답하세요.
 - 이전 분석 결과와 추천 스타일을 기준으로 연결감 있게 답하세요.
+- 선택된 분위기나 무드 정보가 있으면 같은 추천 스타일 안에서 연출 방향을 조정해 답하세요.
 - 손질, 연출, 유지관리, 비교 질문이면 장단점을 쉽게 설명하세요.
 - 근거가 부족하면 단정하지 말고 부족하다고 말하세요.
 - 최종 답변은 2~3문장으로 작성하세요.
