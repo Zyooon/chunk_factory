@@ -32,11 +32,11 @@ MENU = {
     },
     "5": {
         "label": "ChromaDB 적재 (done.json → 벡터 DB)",
-        "cmd": [PYTHON, "-m", "apps.rag.ingest"],
+        "cmd": [PYTHON, "-m", "apps.vector_index.ingest"],
     },
     "6": {
         "label": "CLI 챗봇 실행",
-        "cmd": [PYTHON, "-m", "apps.rag.cli_chat"],
+        "cmd": [PYTHON, "-m", "apps.chatbot_rag.cli"],
     },
     "7": {
         "label": "테스트 화면 실행  (RAG 프론트 서버)",
