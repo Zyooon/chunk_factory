@@ -17,49 +17,51 @@ from apps.chatbot_rag.intents import (
 from apps.chatbot_rag.noise_filter import is_noise
 
 # ---------------------------------------------------------------------------
-# mood_selection: 분위기 선택을 명시적으로 위임할 때만 포함한다.
-# "자연스럽게", "부드럽게", "단정", "캐주얼" 단독으로는 mood_selection이 되지 않는다.
+# mood_selection
 # ---------------------------------------------------------------------------
+# 분위기/느낌/자연스러운/단정/캐주얼 같은 형용사 단독으로는 mood_selection을
+# 반환하지 않는다. 사용자가 "선택을 위임"하거나 "선택지"를 요청할 때만 잡는다.
 
 MOOD_SELECTION_KEYWORDS = [
-    "소개팅에 맞게",
-    "데이트에 맞게",
-    "면접에 맞게",
-    "면접용으로 바꾸",
-    "출근용으로 바꾸",
-    "데이트용으로 바꾸",
-    "메이크업을 면접용",
-    "메이크업 분위기",
-    "분위기로 골라",
+    "분위기 골라",
     "분위기를 골라",
+    "분위기로 골라",
+    "무드 골라",
+    "무드를 골라",
+    "골라줘",
+    "선택해줘",
+    "선택지",
     "분위기 선택",
+    "무드 선택",
+    "어떤 분위기로 갈까",
+    "어떤 분위기로 갈지",
     "어떤 분위기로 가져가",
     "어떤 무드로",
     "무드로 가져가",
-    "분위기로 맞춰",
-    "분위기 맞출",
-    "느낌으로 가고 싶",
-    "어떤 분위기로 갈지",
+    "분위기로 가져가",
+]
+
+MOOD_CONTEXT_WORDS = [
+    "분위기",
+    "무드",
+    "느낌",
+    "이미지",
+]
+
+MOOD_DELEGATE_WORDS = [
+    "골라",
+    "선택",
+    "추천해줘",
+    "정해줘",
+    "가져가면 좋",
+    "갈까",
+    "갈지",
 ]
 
 # ---------------------------------------------------------------------------
 # 우선순위 구문 — 키워드 루프보다 먼저 검사한다.
 # ---------------------------------------------------------------------------
 
-# mood_selection 우선 판단: 명확한 occasion·선택 위임 표현
-# "단정해 보", "단정한 인상" 등 형용사는 제거 — style_fit/styling_method가 담당
-MOOD_PRIORITY_PHRASES = [
-    "소개팅에 맞게",
-    "데이트에 맞게",
-    "면접에 맞게",
-    "면접용으로 바꾸",
-    "메이크업을 면접용",
-    "느낌으로 가고 싶",
-    "분위기 맞출",
-    "어떤 분위기로 가져가",
-]
-
-# style_fit 우선 판단: 루프에서 STYLING_METHOD보다 먼저 확정해야 하는 표현
 STYLE_FIT_PRIORITY_PHRASES = [
     "출근할 때도 괜찮",
     "출근할 때 괜찮",
@@ -70,6 +72,12 @@ STYLE_FIT_PRIORITY_PHRASES = [
     "현실적",
     "데이트할 때",
     "면접용으로도",
+    "좋은 인상",
+    "어른스러운 방향",
+    "아저씨처럼 보",
+    "학생처럼 보",
+    "촌스럽",
+    "창백해 보",
 ]
 
 # ---------------------------------------------------------------------------
@@ -81,8 +89,6 @@ STYLE_FIT_PRIORITY_PHRASES = [
 
 INTENT_KEYWORDS: dict[str, list[str]] = {
     INTENT_COMPARISON: [
-        # _has_explicit_comparison()이 구조적 비교를 처리하므로
-        # 여기서는 명시적 비교 단어만 남긴다.
         "비교",
         "둘 중",
         " vs ",
@@ -90,26 +96,34 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
     INTENT_MAINTENANCE: [
         "유지",
         "관리",
-        "커트",
-        "펌",
         "주기",
         "얼마나",
         "오래",
-        "미용실",
         "손 많이",
-        "수정",
+        "수정화장",
         "무너짐",
         "무너질",
         "무너지",
         "자라면",
         "자랐을 때",
+        "뿌리가 자란",
         "지속",
         "비용",
-        # 내구성/유지력 관련
         "망가지",
+        "망가짐",
         "흐트러",
         "눌려",
+        "눌림",
         "눌리",
+        "버텨줄",
+        "버틸",
+        "물놀이",
+        "비를 자주",
+        "헬멧",
+        "모자",
+        "위생 모자",
+        "귀마개",
+        "바람",
     ],
     INTENT_STYLING_METHOD: [
         "손질",
@@ -123,10 +137,19 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
         "바르는",
         "바르면",
         "립",
+        "립 라이너",
         "블러셔",
         "섀도우",
         "쉐도우",
+        "아이섀도우",
+        "언더라인",
+        "아이라인",
+        "눈썹",
         "베이스",
+        "제형",
+        "컨투어링",
+        "쉐이딩",
+        "하이라이터",
         "연출",
         "화장법",
         "메이크업법",
@@ -134,35 +157,50 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
         "또렷",
         "어떻게 해야",
         "어떻게 하면",
-        "어떻게 해",  # "어떻게 해?" 형태 포함
+        "어떻게 해",
+        "어떻게 눌",
+        "눌러줘",
+        "방법",
+        "방향",
+        "포인트",
+        "어디에 포인트",
         "볼륨",
         "어디에 넣",
         "어디에 볼륨",
         "정수리 볼륨",
         "옆 볼륨",
         "피부 표현",
+        "피부가 더 좋아 보",
         "매트",
         "촉촉",
         "진하게",
         "연하게",
-        # 스타일 조작·처리 동사
         "다듬어",
         "조정",
         "피해야",
         "피해서",
         "처리",
-        "살리",   # "살리면", "살리려면" 모두 포함
+        "살리",
         "바꾸려면",
+        "바꿔야",
         "어떻게 잡",
         "정리해야",
         "어떻게 다듬",
         "줄여야",
         "줄이면",
-        # 추가: 효과 보완·교정 동사
         "보완",
         "달라질",
         "그리면",
         "고려해야",
+        "고정되는 방법",
+        "밝은 곳에서",
+        "조명",
+        "화상통화",
+        "줌",
+        "쌩얼에 가깝게",
+        "완성된 느낌",
+        "하나의 이미지로 통일",
+        "파악해줘",
     ],
     INTENT_MOOD_SELECTION: MOOD_SELECTION_KEYWORDS,
     INTENT_STYLE_FIT: [
@@ -209,7 +247,6 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
         "부담",
         "고민",
         "데일리",
-        # 어울림·적합성 표현
         "어울릴까",
         "맞을까",
         "괜찮을까",
@@ -218,6 +255,15 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
         "변한 느낌",
         "답답해 보",
         "면접용",
+        "목이 짧",
+        "눈이 작은",
+        "직종",
+        "어른스러운",
+        "아저씨처럼",
+        "학생처럼",
+        "촌스럽",
+        "창백해 보",
+        "좋은 인상",
     ],
 }
 
@@ -225,13 +271,26 @@ MAKEUP_CATEGORY_KEYWORDS = [
     "메이크업",
     "화장",
     "립",
+    "립 라이너",
+    "입술",
     "블러셔",
     "치크",
     "섀도우",
     "쉐도우",
     "아이섀도우",
+    "아이 메이크업",
+    "언더라인",
+    "아이라인",
+    "눈썹",
+    "눈매",
     "베이스",
+    "피부 표현",
+    "피부",
+    "제형",
     "톤업",
+    "하이라이터",
+    "쉐이딩",
+    "컨투어링",
     "퍼스널컬러",
     "봄웜",
     "여름쿨",
@@ -261,6 +320,9 @@ HAIR_CATEGORY_KEYWORDS = [
     "앞머리",
     "옆머리",
     "정수리",
+    "두상",
+    "기장",
+    "컬",
     "볼륨",
     "드라이",
     "왁스",
@@ -317,9 +379,7 @@ IRRELEVANT_KEYWORDS = [
     "노래",
 ]
 
-# greeting 판단 시 제거할 말미 표현 (감탄사·이모티콘·구두점)
 _GREETING_STRIP_CHARS = "!?~ㅎㅋ\t\n "
-
 _GREETING_SET = {kw.lower() for kw in GREETING_KEYWORDS}
 
 
@@ -328,48 +388,55 @@ def _has_any(message: str, phrases: list[str]) -> bool:
 
 
 def _is_pure_greeting(message: str) -> bool:
-    """
-    메시지 전체가 인사 표현일 때만 True를 반환한다.
-
-    "하이라이터", "달라질까" 등 인사 단어를 포함하는 긴 문장에서
-    greeting이 오분류되는 것을 방지한다.
-    """
+    """메시지 전체가 인사 표현일 때만 True를 반환한다."""
     stripped = message.strip(_GREETING_STRIP_CHARS).lower()
     return stripped in _GREETING_SET
+
+
+def _is_mood_selection_request(message: str) -> bool:
+    """
+    mood_selection은 선택 위임 의도가 명확할 때만 True.
+
+    "자연스러운", "분위기", "느낌", "이미지", "단정", "캐주얼" 같은 표현은
+    style_fit/styling_method에서도 자주 쓰이므로 단독으로 mood_selection을 만들지 않는다.
+    """
+    if _has_any(message, MOOD_SELECTION_KEYWORDS):
+        return True
+
+    has_context = _has_any(message, MOOD_CONTEXT_WORDS)
+    has_delegate = _has_any(message, MOOD_DELEGATE_WORDS)
+    return has_context and has_delegate
 
 
 def _has_explicit_comparison(message: str) -> bool:
     """
     2개 항목을 명확하게 비교하는 구조일 때만 True를 반환한다.
-
-    단순히 "제일", "가장", "어떤 게" 만으로는 True가 되지 않는다.
-    "어떤", "뭐가", "좋아", "나아" 단독도 해당하지 않는다.
+    단순히 "제일", "가장", "어떤 게", "뭐가 좋아"만으로는 비교 처리하지 않는다.
     """
-    # "둘 중" — 두 항목 중 선택
     if "둘 중" in message:
         return True
 
-    # "A vs B"
     if " vs " in message.lower():
         return True
 
-    # "나을까"가 2번 이상 — "A가 나을까 B가 나을까" 구조
     if message.count("나을까") >= 2:
         return True
 
-    # "어느 쪽" — 두 선택지 중 하나를 고르는 표현
     if "어느 쪽" in message:
         return True
 
-    # "더 맞는 건", "더 쉬운 건" — 비교 우위 표현
-    if "더 맞는 건" in message or "더 쉬운 건" in message:
+    if any(phrase in message for phrase in ["더 맞는 건", "더 쉬운 건", "더 나은 건"]):
         return True
 
-    # "A랑/이랑 B 중에서", "A랑 B 중 ~", "A랑 B 뭐가 더" — 한국어 비교 패턴
     if "랑" in message and any(p in message for p in ["중에서", "중 ", "뭐가 더", "어느 쪽"]):
         return True
 
-    # "추천받은 것 중 뭐가 더 ~" — 복수 후보 중 선택하는 비교 패턴
+    if "와" in message and any(p in message for p in ["중에서", "중 ", "뭐가 더", "어느 쪽"]):
+        return True
+
+    if "과" in message and any(p in message for p in ["중에서", "중 ", "뭐가 더", "어느 쪽"]):
+        return True
+
     if "중" in message and "뭐가 더" in message:
         return True
 
@@ -385,32 +452,30 @@ def get_intent_by_keyword(message: str) -> str:
     if any(keyword in normalized_message for keyword in IRRELEVANT_KEYWORDS):
         return INTENT_IRRELEVANT
 
-    # 명확한 비교 구조 — 2개 항목이 분명할 때만 comparison
+    if _is_pure_greeting(normalized_message):
+        return INTENT_GREETING
+
+    if normalized_message in SMALLTALK_KEYWORDS:
+        return INTENT_SMALLTALK
+
+    # 명확한 비교 구조는 maintenance/styling 키워드보다 우선한다.
     if _has_explicit_comparison(normalized_message):
         return INTENT_COMPARISON
 
-    # 분위기 선택 우선 구문 — 명확한 occasion·선택 위임
-    if _has_any(normalized_message, MOOD_PRIORITY_PHRASES):
+    # mood_selection은 선택 위임 의도가 명확할 때만 허용한다.
+    if _is_mood_selection_request(normalized_message):
         return INTENT_MOOD_SELECTION
 
-    # style_fit 우선 구문 — STYLING_METHOD 키워드보다 먼저 확정
+    # style_fit 우선 구문 — 일부 표현은 styling_method 단어와 섞여도 적합성 판단이 핵심이다.
     if _has_any(normalized_message, STYLE_FIT_PRIORITY_PHRASES):
         return INTENT_STYLE_FIT
 
-    # 키워드 루프 (comparison → maintenance → styling_method → mood_selection → style_fit)
     for intent, keywords in INTENT_KEYWORDS.items():
         if any(keyword.lower() in normalized_message for keyword in keywords):
             return intent
 
     if normalized_message in AMBIGUOUS_MESSAGES:
         return INTENT_UNCLEAR
-
-    # greeting: 전체 문장이 인사일 때만 처리 (부분 문자열 매칭 금지)
-    if _is_pure_greeting(normalized_message):
-        return INTENT_GREETING
-
-    if normalized_message in SMALLTALK_KEYWORDS:
-        return INTENT_SMALLTALK
 
     return INTENT_UNCLEAR
 
