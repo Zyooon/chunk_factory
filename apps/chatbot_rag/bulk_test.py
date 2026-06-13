@@ -6,6 +6,14 @@ from typing import Any
 
 from apps.chatbot_rag.bypass_gate import should_bypass_llm
 from apps.chatbot_rag.graph import run_chatbot
+from apps.chatbot_rag.image_nodes import (
+    IMAGE_INTENT_FIT_CHECK,
+    IMAGE_INTENT_GENERAL_ANALYSIS,
+    IMAGE_INTENT_MAKEUP_MATCH,
+    IMAGE_INTENT_NONE,
+    IMAGE_INTENT_STYLE_MATCH,
+    IMAGE_INTENT_SYNTHESIS,
+)
 from apps.chatbot_rag.intent_classifier import get_intent
 from apps.chatbot_rag.intent_keywords import detect_question_category
 from apps.chatbot_rag.intents import (
@@ -77,6 +85,66 @@ MAKEUP_INPUT = {
     "user_profile": {},
     "chat_history": [],
 }
+
+
+# ---------------------------------------------------------------------------
+# 이미지 테스트 케이스
+# 이미지 테스트는 INTENT_ONLY 모드와 무관하게 항상 run_chatbot()으로 실행한다.
+# 합성 요청(image_synthesis)은 RAG를 타지 않아 LLM 호출 없음.
+# 그 외 케이스는 실제 RAG/LLM 호출이 발생할 수 있다.
+# ---------------------------------------------------------------------------
+
+IMAGE_TEST_CASES: list[dict[str, Any]] = [
+    {
+        "label": "image_none — image_url 없이 일반 질문",
+        "user_message": "추천받은 댄디 스타일이 내 얼굴형에 어울릴까요?",
+        "image_url": None,
+        "target_type": CATEGORY_HAIR,
+        "expected_image_intent": IMAGE_INTENT_NONE,
+    },
+    {
+        "label": "image_general_analysis — 이미지 + 일반 어울림 질문",
+        "user_message": "이 스타일 나한테 어울릴까요?",
+        "image_url": "http://localhost:8000/uploads/test_style.jpg",
+        "target_type": CATEGORY_HAIR,
+        "expected_image_intent": IMAGE_INTENT_GENERAL_ANALYSIS,
+    },
+    {
+        "label": "image_general_analysis — 이미지 + 비슷한 스타일 질문",
+        "user_message": "이 헤어스타일과 비슷한 추천 있어요?",
+        "image_url": "http://localhost:8000/uploads/test_style.jpg",
+        "target_type": CATEGORY_HAIR,
+        "expected_image_intent": IMAGE_INTENT_GENERAL_ANALYSIS,
+    },
+    {
+        "label": "image_synthesis — 합성 키워드 '입혀줘'",
+        "user_message": "이 헤어스타일 나한테 입혀줘",
+        "image_url": "http://localhost:8000/uploads/test_style.jpg",
+        "target_type": CATEGORY_HAIR,
+        "expected_image_intent": IMAGE_INTENT_SYNTHESIS,
+    },
+    {
+        "label": "image_synthesis — 합성 키워드 '합성'",
+        "user_message": "이 스타일로 합성해줘",
+        "image_url": "http://localhost:8000/uploads/test_style.jpg",
+        "target_type": CATEGORY_HAIR,
+        "expected_image_intent": IMAGE_INTENT_SYNTHESIS,
+    },
+    {
+        "label": "image_synthesis — 합성 키워드 '적용해줘'",
+        "user_message": "이 메이크업 나한테 적용해줘",
+        "image_url": "http://localhost:8000/uploads/test_makeup.jpg",
+        "target_type": CATEGORY_MAKEUP,
+        "expected_image_intent": IMAGE_INTENT_SYNTHESIS,
+    },
+    {
+        "label": "image_general_analysis — 메이크업 이미지 분석 질문",
+        "user_message": "이 메이크업 내 퍼스널컬러에 맞을까요?",
+        "image_url": "http://localhost:8000/uploads/test_makeup.jpg",
+        "target_type": CATEGORY_MAKEUP,
+        "expected_image_intent": IMAGE_INTENT_GENERAL_ANALYSIS,
+    },
+]
 
 
 TWO_TURN_SELECTED_OPTION = {
@@ -333,6 +401,116 @@ def format_two_turn_log(
     )
 
 
+def format_image_test_log(
+    *,
+    index: int,
+    total: int,
+    case: dict[str, Any],
+    result: dict[str, Any],
+) -> str:
+    retrieval_info = result.get("retrieval_info", {})
+
+    expected = case.get("expected_image_intent")
+    actual = result.get("image_intent")
+    passed = actual == expected
+    pass_label = "PASS" if passed else f"FAIL (expected={expected}, actual={actual})"
+
+    return "\n".join(
+        [
+            "=" * 100,
+            f"[IMAGE {index}/{total}] {case['label']}",
+            f"user_message: {case['user_message']}",
+            f"image_url: {case.get('image_url')}",
+            f"target_type: {case.get('target_type')}",
+            f"expected_image_intent: {expected}",
+            f"image_intent: {actual}",
+            f"image_intent_debug: {result.get('image_intent_debug')}",
+            f"image_is_synthesis_request: {result.get('image_is_synthesis_request')}",
+            f"image_analysis: {result.get('image_analysis')}",
+            f"image_visual_features: {result.get('image_visual_features')}",
+            f"skipped_rag: {retrieval_info.get('skipped_rag')}",
+            f"skip_reason: {retrieval_info.get('skip_reason')}",
+            f"retrieved_count: {retrieval_info.get('retrieved_count')}",
+            f"intent: {result.get('intent')}",
+            f"error: {result.get('error')}",
+            f"RESULT: {pass_label}",
+            "",
+            "[answer]",
+            result.get("answer", ""),
+            "",
+        ]
+    )
+
+
+def run_image_tests(logs: list[str]) -> tuple[int, int]:
+    """
+    IMAGE_TEST_CASES를 순서대로 실행하고 결과를 logs에 추가한다.
+
+    INTENT_ONLY 모드와 무관하게 항상 run_chatbot()으로 실행한다.
+
+    반환: (pass_count, total)
+    """
+    total = len(IMAGE_TEST_CASES)
+    pass_count = 0
+
+    logs.append("=" * 100)
+    logs.append(f"[이미지 테스트] 총 {total}개 (항상 run_chatbot 사용, INTENT_ONLY 무관)")
+    logs.append("=" * 100)
+    logs.append("")
+
+    for index, case in enumerate(IMAGE_TEST_CASES, start=1):
+        print(f"[IMAGE {index}/{total}] {case['label']}")
+
+        chatbot_input = get_input_for_target(case.get("target_type"))
+
+        try:
+            result = run_chatbot(
+                user_message=case["user_message"],
+                image_url=case.get("image_url"),
+                **chatbot_input,
+            )
+        except Exception as exc:
+            result = {
+                "answer": "",
+                "intent": None,
+                "image_intent": None,
+                "image_intent_debug": None,
+                "image_is_synthesis_request": False,
+                "image_analysis": None,
+                "image_visual_features": [],
+                "retrieval_info": {},
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+        expected = case.get("expected_image_intent")
+        actual = result.get("image_intent")
+        passed = actual == expected
+        if passed:
+            pass_count += 1
+
+        logs.append(
+            format_image_test_log(
+                index=index,
+                total=total,
+                case=case,
+                result=result,
+            )
+        )
+
+        retrieval_info = result.get("retrieval_info", {})
+        status = "PASS" if passed else f"FAIL(expected={expected}, got={actual})"
+        print(
+            f"  → {status}, "
+            f"image_intent={actual}, "
+            f"skipped_rag={retrieval_info.get('skipped_rag')}, "
+            f"skip_reason={retrieval_info.get('skip_reason')}, "
+            f"retrieved_count={retrieval_info.get('retrieved_count')}, "
+            f"error={result.get('error')}"
+        )
+
+    return pass_count, total
+
+
 def run_mood_two_turn_test(
     *,
     label: str,
@@ -512,16 +690,22 @@ def main() -> None:
             f"error={second_result.get('error')}"
         )
 
+    # 이미지 테스트 (INTENT_ONLY 무관하게 항상 run_chatbot 사용)
+    print()
+    image_pass_count, image_total = run_image_tests(logs)
+
     finished_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     logs.append("=" * 100)
     logs.append(f"chatbot_rag bulk test finished_at={finished_at}")
+    logs.append(f"image_test_pass={image_pass_count}/{image_total}")
     logs.append("=" * 100)
 
     LOG_FILE.write_text("\n".join(logs), encoding="utf-8")
 
     print()
-    print(f"테스트 완료: {total}개 + 2턴 mood 선택 테스트 {len(two_turn_tests)}개")
+    print(f"텍스트 테스트: {total}개 + 2턴 mood 선택 테스트 {len(two_turn_tests)}개")
+    print(f"이미지 테스트: {image_pass_count}/{image_total} PASS")
     print(f"intent_only={INTENT_ONLY}")
     print("hair_makeup_split=True")
     print(f"로그 저장 위치: {LOG_FILE}")
