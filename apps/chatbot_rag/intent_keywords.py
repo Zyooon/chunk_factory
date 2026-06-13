@@ -39,6 +39,9 @@ MOOD_SELECTION_KEYWORDS = [
     "어떤 무드로",
     "무드로 가져가",
     "분위기로 가져가",
+    "메이크업 분위기",
+    "메이크업 분위기를 어떻게 잡",
+    "분위기를 어떻게 잡",
 ]
 
 MOOD_CONTEXT_WORDS = [
@@ -50,12 +53,23 @@ MOOD_CONTEXT_WORDS = [
 
 MOOD_DELEGATE_WORDS = [
     "골라",
-    "선택",
+    "선택해줘",
     "추천해줘",
     "정해줘",
     "가져가면 좋",
     "갈까",
     "갈지",
+]
+
+# mood_selection으로 오인하기 쉬운 표현. 이 표현이 있으면 styling_method/fit이 담당한다.
+MOOD_FALSE_POSITIVE_PHRASES = [
+    "분위기 있게",
+    "선택 기준",
+    "색조를 처음",
+    "실수가 적은",
+    "자연스러운 쉐이딩",
+    "완성된 느낌",
+    "이미지로 통일",
 ]
 
 # ---------------------------------------------------------------------------
@@ -200,7 +214,24 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
         "쌩얼에 가깝게",
         "완성된 느낌",
         "하나의 이미지로 통일",
-        "파악해줘",
+        "이미지로 통일",
+        "파악",
+        "위치",
+        "컬의 위치",
+        "입문자",
+        "실수",
+        "실수가 적은",
+        "빠르게 완성",
+        "중요한 자리",
+        "조합",
+        "덜 자르게",
+        "디자이너에게",
+        "예약 시",
+        "선호도",
+        "전달하는 게",
+        "선택 기준",
+        "처음 써보",
+        "컬러가 뭐야",
     ],
     INTENT_MOOD_SELECTION: MOOD_SELECTION_KEYWORDS,
     INTENT_STYLE_FIT: [
@@ -270,6 +301,7 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
 MAKEUP_CATEGORY_KEYWORDS = [
     "메이크업",
     "화장",
+    "색조",
     "립",
     "립 라이너",
     "입술",
@@ -327,6 +359,8 @@ HAIR_CATEGORY_KEYWORDS = [
     "드라이",
     "왁스",
     "스프레이",
+    "디자이너",
+    "미용실",
 ]
 
 AMBIGUOUS_MESSAGES: set[str] = {
@@ -397,9 +431,11 @@ def _is_mood_selection_request(message: str) -> bool:
     """
     mood_selection은 선택 위임 의도가 명확할 때만 True.
 
-    "자연스러운", "분위기", "느낌", "이미지", "단정", "캐주얼" 같은 표현은
-    style_fit/styling_method에서도 자주 쓰이므로 단독으로 mood_selection을 만들지 않는다.
+    "선택 기준"처럼 방법을 묻는 표현은 제외한다.
     """
+    if _has_any(message, MOOD_FALSE_POSITIVE_PHRASES):
+        return False
+
     if _has_any(message, MOOD_SELECTION_KEYWORDS):
         return True
 
