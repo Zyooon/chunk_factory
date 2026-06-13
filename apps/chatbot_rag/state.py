@@ -73,3 +73,10 @@ class ChatbotState(TypedDict, total=False):
     # 업데이트된 대화 기록/유저 정보
     updated_chat_history: list[dict[str, str]]
     updated_user_profile: dict[str, Any]
+
+    # 이미지 업로드 관련 (DB 저장 없음, image_url만 전달받음)
+    image_url: str | None
+    image_analysis: dict[str, Any] | None
+    image_visual_features: list[str]
+    image_detected_style: dict[str, Any] | None
+    image_is_synthesis_request: bool

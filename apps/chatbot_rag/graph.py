@@ -5,6 +5,10 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from apps.chatbot_rag.bypass_gate import should_bypass_llm
+from apps.chatbot_rag.image_nodes import (
+    analyze_image_if_needed,
+    handle_image_synthesis_request,
+)
 from apps.chatbot_rag.nodes import (
     ask_clarification,
     ask_mood_selection,
@@ -34,6 +38,19 @@ def route_after_analysis(state: ChatbotState) -> str:
 
     if state.get("error") == "missing_analysis":
         return "update_memory"
+
+    return "analyze_image_if_needed"
+
+
+def route_after_image_analysis(state: ChatbotState) -> str:
+    """
+    이미지 분석 노드 이후 다음 노드를 결정한다.
+
+    합성 요청이면 RAG를 건너뛰고 임시 응답 노드로 이동한다.
+    """
+
+    if state.get("image_is_synthesis_request"):
+        return "handle_image_synthesis_request"
 
     return "classify_intent"
 
@@ -70,6 +87,8 @@ def build_chatbot_graph():
     graph = StateGraph(ChatbotState)
 
     graph.add_node("check_analysis_exists", check_analysis_exists)
+    graph.add_node("analyze_image_if_needed", analyze_image_if_needed)
+    graph.add_node("handle_image_synthesis_request", handle_image_synthesis_request)
     graph.add_node("classify_intent", classify_intent)
     graph.add_node("ask_clarification", ask_clarification)
     graph.add_node("ask_mood_selection", ask_mood_selection)
@@ -84,8 +103,17 @@ def build_chatbot_graph():
         "check_analysis_exists",
         route_after_analysis,
         {
-            "classify_intent": "classify_intent",
+            "analyze_image_if_needed": "analyze_image_if_needed",
             "update_memory": "update_memory",
+        },
+    )
+
+    graph.add_conditional_edges(
+        "analyze_image_if_needed",
+        route_after_image_analysis,
+        {
+            "handle_image_synthesis_request": "handle_image_synthesis_request",
+            "classify_intent": "classify_intent",
         },
     )
 
@@ -100,6 +128,7 @@ def build_chatbot_graph():
         },
     )
 
+    graph.add_edge("handle_image_synthesis_request", "update_memory")
     graph.add_edge("ask_clarification", "update_memory")
     graph.add_edge("ask_mood_selection", "update_memory")
     graph.add_edge("generate_non_rag_answer", "update_memory")
@@ -114,6 +143,7 @@ def run_chatbot(
     *,
     user_message: str | None = None,
     feedback_text: str | None = None,
+    image_url: str | None = None,
     target_type: str | None = None,
     applied_style_key: str | None = None,
     selected_option: dict[str, Any] | None = None,
@@ -143,6 +173,7 @@ def run_chatbot(
 
     initial_state: ChatbotState = {
         "user_message": message or "",
+        "image_url": image_url,
         "target_type": normalized_target_type,
         "applied_style_key": applied_style_key,
         "selected_option": selected_option,
@@ -186,4 +217,8 @@ def run_chatbot(
         "updated_chat_history": result.get("updated_chat_history", []),
         "updated_user_profile": result.get("updated_user_profile", {}),
         "error": result.get("error"),
+        "image_analysis": result.get("image_analysis"),
+        "image_visual_features": result.get("image_visual_features", []),
+        "image_detected_style": result.get("image_detected_style"),
+        "image_is_synthesis_request": result.get("image_is_synthesis_request", False),
     }
