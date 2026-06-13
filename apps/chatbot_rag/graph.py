@@ -6,7 +6,10 @@ from langgraph.graph import END, START, StateGraph
 
 from apps.chatbot_rag.bypass_gate import should_bypass_llm
 from apps.chatbot_rag.image_nodes import (
+    IMAGE_INTENT_NONE,
+    IMAGE_INTENT_SYNTHESIS,
     analyze_image_if_needed,
+    classify_image_intent,
     handle_image_synthesis_request,
 )
 from apps.chatbot_rag.nodes import (
@@ -35,24 +38,30 @@ def route_after_analysis(state: ChatbotState) -> str:
 
     missing_analysis 상태이면 검색/생성을 하지 않고 update_memory로 이동한다.
     """
-
     if state.get("error") == "missing_analysis":
         return "update_memory"
 
-    return "analyze_image_if_needed"
+    return "classify_image_intent"
 
 
-def route_after_image_analysis(state: ChatbotState) -> str:
+def route_after_image_intent(state: ChatbotState) -> str:
     """
-    이미지 분석 노드 이후 다음 노드를 결정한다.
+    image intent 분류 결과에 따라 다음 노드를 결정한다.
 
-    합성 요청이면 RAG를 건너뛰고 임시 응답 노드로 이동한다.
+    - image_none: image_url이 없으므로 기존 텍스트 흐름으로 이동한다.
+    - image_synthesis: 합성 요청이므로 RAG를 건너뛰고 임시 응답 노드로 이동한다.
+    - 나머지 이미지 intent: 이미지 분석 후 RAG 흐름을 탄다.
     """
+    image_intent = state.get("image_intent", IMAGE_INTENT_NONE)
 
-    if state.get("image_is_synthesis_request"):
+    if image_intent == IMAGE_INTENT_SYNTHESIS:
         return "handle_image_synthesis_request"
 
-    return "classify_intent"
+    if image_intent == IMAGE_INTENT_NONE:
+        return "classify_intent"
+
+    # image_fit_check / image_style_match / image_makeup_match / image_general_analysis
+    return "analyze_image_if_needed"
 
 
 def route_after_intent(state: ChatbotState) -> str:
@@ -64,7 +73,6 @@ def route_after_intent(state: ChatbotState) -> str:
     - unclear는 객관식 재질문으로 보낸다.
     - 나머지 피드백 상담 intent는 RAG 검색으로 보낸다.
     """
-
     intent = state.get("intent")
 
     if should_bypass_llm(intent):
@@ -82,11 +90,20 @@ def route_after_intent(state: ChatbotState) -> str:
 def build_chatbot_graph():
     """
     chatbot_rag LangGraph를 생성한다.
-    """
 
+    흐름:
+        check_analysis_exists
+        → classify_image_intent
+        → route_after_image_intent:
+            image_none          → classify_intent
+            image_synthesis     → handle_image_synthesis_request → update_memory
+            그 외 이미지 intent  → analyze_image_if_needed → classify_intent
+                                  → retrieve_context → generate_answer → update_memory
+    """
     graph = StateGraph(ChatbotState)
 
     graph.add_node("check_analysis_exists", check_analysis_exists)
+    graph.add_node("classify_image_intent", classify_image_intent)
     graph.add_node("analyze_image_if_needed", analyze_image_if_needed)
     graph.add_node("handle_image_synthesis_request", handle_image_synthesis_request)
     graph.add_node("classify_intent", classify_intent)
@@ -103,19 +120,23 @@ def build_chatbot_graph():
         "check_analysis_exists",
         route_after_analysis,
         {
-            "analyze_image_if_needed": "analyze_image_if_needed",
+            "classify_image_intent": "classify_image_intent",
             "update_memory": "update_memory",
         },
     )
 
     graph.add_conditional_edges(
-        "analyze_image_if_needed",
-        route_after_image_analysis,
+        "classify_image_intent",
+        route_after_image_intent,
         {
             "handle_image_synthesis_request": "handle_image_synthesis_request",
+            "analyze_image_if_needed": "analyze_image_if_needed",
             "classify_intent": "classify_intent",
         },
     )
+
+    # 이미지 분석 후 항상 텍스트 intent 분류로 이동한다.
+    graph.add_edge("analyze_image_if_needed", "classify_intent")
 
     graph.add_conditional_edges(
         "classify_intent",
@@ -162,7 +183,6 @@ def run_chatbot(
     현재 챗봇은 추천 결과에 대한 피드백/후속 질문 전용이다.
     feedback_text를 우선 사용하고, 기존 호출 호환을 위해 user_message도 허용한다.
     """
-
     graph = build_chatbot_graph()
 
     normalized_target_type = target_type
@@ -217,8 +237,10 @@ def run_chatbot(
         "updated_chat_history": result.get("updated_chat_history", []),
         "updated_user_profile": result.get("updated_user_profile", {}),
         "error": result.get("error"),
+        "image_intent": result.get("image_intent"),
+        "image_intent_debug": result.get("image_intent_debug"),
+        "image_is_synthesis_request": result.get("image_is_synthesis_request", False),
         "image_analysis": result.get("image_analysis"),
         "image_visual_features": result.get("image_visual_features", []),
         "image_detected_style": result.get("image_detected_style"),
-        "image_is_synthesis_request": result.get("image_is_synthesis_request", False),
     }

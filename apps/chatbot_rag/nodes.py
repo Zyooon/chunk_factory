@@ -431,9 +431,10 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
         detected_style_name = detected_style.get("style_name", "")
         makeup_group = detected_style.get("makeup_group")
 
-    # 이미지 분석 결과가 있으면 style_code와 detected_style_name을 보강한다.
+    # 이미지 분석 결과가 있으면 query 구성 요소를 보강한다.
     image_analysis = state.get("image_analysis")
     image_visual_features: list[str] = state.get("image_visual_features") or []
+    rag_query_text = ""
     if image_analysis:
         if not style_code:
             candidates = image_analysis.get("style_code_candidates") or []
@@ -441,6 +442,7 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
                 style_code = candidates[0]
         if not detected_style_name:
             detected_style_name = image_analysis.get("detected_style_name") or ""
+        rag_query_text = image_analysis.get("rag_query_text") or ""
 
     image_features_text = " ".join(image_visual_features)
 
@@ -452,6 +454,7 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             f"{detected_style_name} "
             f"{selected_mood or ''} "
             f"{mood_text} "
+            f"{rag_query_text} "
             f"{image_features_text} "
             f"{user_message}"
         ).strip()
@@ -471,6 +474,7 @@ def retrieve_context(state: ChatbotState) -> ChatbotState:
             f"{detected_style_name} "
             f"{selected_mood or ''} "
             f"{mood_text} "
+            f"{rag_query_text} "
             f"{image_features_text} "
             f"{user_message}"
         ).strip()

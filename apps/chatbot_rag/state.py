@@ -76,7 +76,9 @@ class ChatbotState(TypedDict, total=False):
 
     # 이미지 업로드 관련 (DB 저장 없음, image_url만 전달받음)
     image_url: str | None
+    image_intent: str
+    image_intent_debug: dict[str, Any]
+    image_is_synthesis_request: bool
     image_analysis: dict[str, Any] | None
     image_visual_features: list[str]
     image_detected_style: dict[str, Any] | None
-    image_is_synthesis_request: bool
