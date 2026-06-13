@@ -6,27 +6,43 @@ const appState = {
   ragCoverage: new Set(),   // ChromaDB에 데이터가 있는 style_code 집합
 };
 
-const MAKEUP_STYLES_BY_PERSONAL_COLOR = {
-  '봄웜': [
-    { category: 'makeup', style_name: '피치 메이크업', style_code: 'mk-sp-peach', makeup_group: 'peach' },
-    { category: 'makeup', style_name: '코랄 메이크업', style_code: 'mk-sp-coral', makeup_group: 'coral' },
-    { category: 'makeup', style_name: '주시 메이크업', style_code: 'mk-sp-juicy', makeup_group: 'juicy' },
-  ],
-  '여름쿨': [
-    { category: 'makeup', style_name: '듀이 메이크업', style_code: 'mk-su-dewy', makeup_group: 'dewy' },
-    { category: 'makeup', style_name: '내추럴 메이크업', style_code: 'mk-su-natural', makeup_group: 'natural' },
-    { category: 'makeup', style_name: '로즈 메이크업', style_code: 'mk-su-rose', makeup_group: 'rose' },
-  ],
-  '가을웜': [
-    { category: 'makeup', style_name: '브라운 메이크업', style_code: 'mk-au-brown', makeup_group: 'brown' },
-    { category: 'makeup', style_name: '시크 메이크업', style_code: 'mk-au-chic', makeup_group: 'chic' },
-    { category: 'makeup', style_name: '오피스 메이크업', style_code: 'mk-au-office', makeup_group: 'office' },
-  ],
-  '겨울쿨': [
-    { category: 'makeup', style_name: '버건디 메이크업', style_code: 'mk-wi-burgundy', makeup_group: 'burgundy' },
-    { category: 'makeup', style_name: '글램 메이크업', style_code: 'mk-wi-glam', makeup_group: 'glam' },
-    { category: 'makeup', style_name: '레드 메이크업', style_code: 'mk-wi-red', makeup_group: 'red' },
-  ],
+const MAKEUP_STYLES_BY_GENDER_AND_PERSONAL_COLOR = {
+  '여성': {
+    '봄웜': [
+      { category: 'makeup', style_name: '피치 메이크업', style_code: 'mk-sp-peach', makeup_group: 'peach' },
+      { category: 'makeup', style_name: '코랄 메이크업', style_code: 'mk-sp-coral', makeup_group: 'coral' },
+      { category: 'makeup', style_name: '주시 메이크업', style_code: 'mk-sp-juicy', makeup_group: 'juicy' },
+    ],
+    '여름쿨': [
+      { category: 'makeup', style_name: '듀이 메이크업', style_code: 'mk-su-dewy', makeup_group: 'dewy' },
+      { category: 'makeup', style_name: '내추럴 메이크업', style_code: 'mk-su-natural', makeup_group: 'natural' },
+      { category: 'makeup', style_name: '로즈 메이크업', style_code: 'mk-su-rose', makeup_group: 'rose' },
+    ],
+    '가을웜': [
+      { category: 'makeup', style_name: '브라운 메이크업', style_code: 'mk-au-brown', makeup_group: 'brown' },
+      { category: 'makeup', style_name: '시크 메이크업', style_code: 'mk-au-chic', makeup_group: 'chic' },
+      { category: 'makeup', style_name: '오피스 메이크업', style_code: 'mk-au-office', makeup_group: 'office' },
+    ],
+    '겨울쿨': [
+      { category: 'makeup', style_name: '버건디 메이크업', style_code: 'mk-wi-burgundy', makeup_group: 'burgundy' },
+      { category: 'makeup', style_name: '글램 메이크업', style_code: 'mk-wi-glam', makeup_group: 'glam' },
+      { category: 'makeup', style_name: '레드 메이크업', style_code: 'mk-wi-red', makeup_group: 'red' },
+    ],
+  },
+  '남성': {
+    '봄웜': [
+      { category: 'makeup', style_name: '봄웜 내추럴 메이크업', style_code: 'mk-m-sp-natural', makeup_group: 'male_spring_natural' },
+    ],
+    '여름쿨': [
+      { category: 'makeup', style_name: '여름쿨 클린 메이크업', style_code: 'mk-m-su-clean', makeup_group: 'male_summer_clean' },
+    ],
+    '가을웜': [
+      { category: 'makeup', style_name: '가을웜 소프트 메이크업', style_code: 'mk-m-au-soft', makeup_group: 'male_autumn_soft' },
+    ],
+    '겨울쿨': [
+      { category: 'makeup', style_name: '겨울쿨 샤프 메이크업', style_code: 'mk-m-wi-sharp', makeup_group: 'male_winter_sharp' },
+    ],
+  },
 };
 
 // ── DOM 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -42,6 +58,9 @@ async function init() {
   $('btn-sample-male').addEventListener('click', fillSampleMale);
   $('btn-sample-female').addEventListener('click', fillSampleFemale);
   $('personal-color').addEventListener('change', renderMakeupOptions);
+  document.querySelectorAll('input[name="gender"]').forEach((r) => {
+    r.addEventListener('change', renderMakeupOptions);
+  });
   $('btn-load-options').addEventListener('click', handleLoadOptions);
   $('btn-analyze').addEventListener('click', handleAnalyze);
   $('btn-chat').addEventListener('click', handleChat);
@@ -91,8 +110,9 @@ function getGender() {
 }
 
 function getRecommendedMakeupStyles() {
+  const gender = getGender();
   const personalColor = $('personal-color').value;
-  return MAKEUP_STYLES_BY_PERSONAL_COLOR[personalColor] || [];
+  return (MAKEUP_STYLES_BY_GENDER_AND_PERSONAL_COLOR[gender] || {})[personalColor] || [];
 }
 
 function renderMakeupOptions() {

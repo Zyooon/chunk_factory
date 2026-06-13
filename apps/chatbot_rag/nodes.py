@@ -342,6 +342,7 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
         detected_makeup_style = find_makeup_style_in_message(
             message=user_message,
             personal_color=personal_color,
+            gender=gender,
         )
 
         if category == CATEGORY_MAKEUP:
