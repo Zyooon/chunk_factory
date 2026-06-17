@@ -103,8 +103,13 @@ def main() -> None:
     print("기존 ChromaDB 초기화 완료")
 
     vectorstore = get_vectorstore(embedding_model)
-    vectorstore.add_documents(documents)
-    print(f"ChromaDB 적재 완료: {len(documents)}개 문서")
+    total = len(documents)
+    for i, doc in enumerate(documents, start=1):
+        vectorstore.add_documents([doc])
+        style_code = doc.metadata.get("style_code", "?")
+        style_name = doc.metadata.get("style_name", "?")
+        print(f"[{i}/{total}] {style_code} ({style_name})")
+    print(f"\nChromaDB 적재 완료: {total}개 문서")
 
     print(f"저장 경로: {CHROMA_DIR}")
     print(f"컬렉션 이름: {CHROMA_COLLECTION_NAME}")
