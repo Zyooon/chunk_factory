@@ -1,27 +1,3 @@
-# hair_factory.py
-#
-# ============================================================
-# [실행 가이드 - uv 사용]
-# ============================================================
-# 1. uv 설치 (최초 1회, PowerShell):
-#    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-#
-# 2. 가상환경 생성 및 의존성 설치:
-#    uv venv
-#    uv sync
-#    # 또는 개별 설치:
-#    uv pip install google-genai python-dotenv
-#
-# 3. .env 파일 생성 (프로젝트 루트):
-#    GEMINI_API_KEY=여기에_발급받은_키_입력
-#
-# 4. input_texts/ 폴더에 .txt 파일을 넣은 뒤 실행:
-#    uv run hair_factory.py
-#    # 또는 가상환경 활성화 후:
-#    .venv\Scripts\activate   (Windows)
-#    python hair_factory.py
-# ============================================================
-
 import json
 import os
 import time
