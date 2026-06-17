@@ -54,6 +54,18 @@ class ChatbotState(TypedDict, total=False):
     selected_mood: str | None
     selected_mood_keywords: list[str]
 
+    # outfit 추천/판단/합성 흐름
+    outfit_intent: str | None
+    outfit_context: str | None
+    outfit_options: list[dict]
+    selected_outfit_option: dict | None
+    outfit_image_analysis: dict | None
+    pending_outfit_synthesis: dict | None
+
+    # 내부 라우팅 플래그
+    outfit_prerequisites_met: bool
+    outfit_synthesis_action: str | None
+
     # 문맥이 불명확할 때 객관식 재질문에 사용
     needs_clarification: bool
     clarification_options: list[str]

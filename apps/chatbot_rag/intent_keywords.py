@@ -9,6 +9,9 @@ from apps.chatbot_rag.intents import (
     INTENT_MAINTENANCE,
     INTENT_MOOD_SELECTION,
     INTENT_NOISE,
+    INTENT_OUTFIT_EVENT_COORDINATION,
+    INTENT_OUTFIT_FIT_CHECK,
+    INTENT_OUTFIT_RECOMMENDATION,
     INTENT_SMALLTALK,
     INTENT_STYLE_FIT,
     INTENT_STYLING_METHOD,
@@ -440,6 +443,48 @@ IRRELEVANT_KEYWORDS = [
     "노래",
 ]
 
+# ---------------------------------------------------------------------------
+# outfit 키워드 — 명시적으로 의상/옷/코디가 언급된 경우에만 outfit intent로 분류한다.
+# ---------------------------------------------------------------------------
+
+OUTFIT_EXPLICIT_KEYWORDS = [
+    "의상",
+    "옷",
+    "코디",
+    "입을",
+    "뭐 입",
+    "어떤 옷",
+    "어떤 의상",
+    "패션",
+    "착장",
+    "하객룩",
+    "데이트룩",
+    "오피스룩",
+    "데일리룩",
+    "룩 추천",
+    "코디 추천",
+    "아우터",
+]
+
+OUTFIT_FIT_CHECK_PHRASES = [
+    "이 의상",
+    "이 옷",
+    "이 코디",
+    "이 룩",
+]
+
+OUTFIT_EVENT_KEYWORDS = [
+    "결혼식",
+    "하객",
+    "면접",
+    "데이트",
+    "소개팅",
+    "출근",
+    "격식",
+    "예식",
+    "행사",
+]
+
 _GREETING_STRIP_CHARS = "!?~ㅎㅋ\t\n "
 _GREETING_SET = {kw.lower() for kw in GREETING_KEYWORDS}
 
@@ -469,6 +514,18 @@ def _is_mood_selection_request(message: str) -> bool:
     has_context = _has_any(message, MOOD_CONTEXT_WORDS)
     has_delegate = _has_any(message, MOOD_DELEGATE_WORDS)
     return has_context and has_delegate
+
+
+def _is_outfit_request(message: str) -> bool:
+    return _has_any(message, OUTFIT_EXPLICIT_KEYWORDS)
+
+
+def _get_outfit_intent(message: str) -> str:
+    if _has_any(message, OUTFIT_FIT_CHECK_PHRASES):
+        return INTENT_OUTFIT_FIT_CHECK
+    if _has_any(message, OUTFIT_EVENT_KEYWORDS):
+        return INTENT_OUTFIT_EVENT_COORDINATION
+    return INTENT_OUTFIT_RECOMMENDATION
 
 
 def _has_explicit_comparison(message: str) -> bool:
@@ -525,6 +582,10 @@ def get_intent_by_keyword(message: str) -> str:
     if _has_explicit_comparison(normalized_message):
         return INTENT_COMPARISON
 
+    # outfit 키워드가 명시적으로 있으면 mood_selection보다 먼저 잡는다.
+    if _is_outfit_request(normalized_message):
+        return _get_outfit_intent(normalized_message)
+
     # mood_selection은 선택 위임 의도가 명확할 때만 허용한다.
     if _is_mood_selection_request(normalized_message):
         return INTENT_MOOD_SELECTION
@@ -541,6 +602,24 @@ def get_intent_by_keyword(message: str) -> str:
         return INTENT_UNCLEAR
 
     return INTENT_UNCLEAR
+
+
+def _extract_outfit_context_from_message(user_message: str) -> str | None:
+    """사용자 메시지에서 의상 상황 id를 추출한다."""
+    msg = user_message.lower()
+    if any(k in msg for k in ["결혼식", "하객", "예식"]):
+        return "wedding_guest"
+    if any(k in msg for k in ["데이트", "소개팅"]):
+        return "date"
+    if any(k in msg for k in ["면접", "출근", "오피스"]):
+        return "office"
+    if any(k in msg for k in ["격식", "공식 행사", "공식 자리"]):
+        return "formal"
+    if "캐주얼" in msg or "꾸안꾸" in msg:
+        return "casual"
+    if "데일리" in msg:
+        return "daily"
+    return None
 
 
 def detect_question_category(message: str) -> str:

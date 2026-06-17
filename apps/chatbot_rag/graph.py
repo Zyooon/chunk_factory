@@ -13,45 +13,81 @@ from apps.chatbot_rag.image_nodes import (
     handle_image_synthesis_request,
 )
 from apps.chatbot_rag.nodes import (
+    analyze_outfit_image,
     ask_clarification,
     ask_mood_selection,
+    ask_outfit_context_selection,
+    ask_outfit_option_selection,
     check_analysis_exists,
+    check_hair_makeup_ready,
+    check_user_image_for_synthesis,
     classify_intent,
     generate_answer_node,
     generate_non_rag_answer,
+    generate_outfit_answer,
+    handle_mood_pending,
+    handle_outfit_context_pending,
+    handle_outfit_option_pending,
+    handle_outfit_user_image_pending,
+    handle_synthesis_confirmation,
+    resolve_pending_selection,
     retrieve_context,
+    run_outfit_synthesis,
     update_memory,
 )
-
 from apps.chatbot_rag.intents import (
     CATEGORY_HAIR,
     CATEGORY_MAKEUP,
+    INTENT_MOOD_CHOICE,
     INTENT_MOOD_SELECTION,
+    INTENT_OUTFIT_FIT_CHECK,
+    INTENT_OUTFIT_RECOMMENDATION,
+    OUTFIT_INTENTS,
+    PENDING_OUTFIT_CONTEXT,
+    PENDING_OUTFIT_OPTION_SELECTION,
+    PENDING_OUTFIT_SYNTHESIS_CONFIRMATION,
+    PENDING_OUTFIT_USER_IMAGE_REQUIRED,
+    PENDING_SELECTION_MOOD,
 )
-
 from apps.chatbot_rag.state import ChatbotState
 
 
-def route_after_analysis(state: ChatbotState) -> str:
-    """
-    분석 결과 존재 여부 확인 후 다음 노드를 결정한다.
+# ---------------------------------------------------------------------------
+# 라우팅 함수
+# ---------------------------------------------------------------------------
 
-    missing_analysis 상태이면 검색/생성을 하지 않고 update_memory로 이동한다.
-    """
+def route_after_analysis(state: ChatbotState) -> str:
     if state.get("error") == "missing_analysis":
         return "update_memory"
+    return "resolve_pending_selection"
+
+
+def _route_by_pending(state: ChatbotState) -> str:
+    """pending_selection 값에 따라 적절한 핸들러로 분기한다."""
+    pending = state.get("pending_selection")
+    selected_option = state.get("selected_option")
+
+    if pending == PENDING_SELECTION_MOOD and selected_option:
+        return "handle_mood_pending"
+    if pending == PENDING_OUTFIT_CONTEXT and selected_option:
+        return "handle_outfit_context_pending"
+    if pending == PENDING_OUTFIT_SYNTHESIS_CONFIRMATION and selected_option:
+        return "handle_synthesis_confirmation"
+    if pending == PENDING_OUTFIT_OPTION_SELECTION and selected_option:
+        return "handle_outfit_option_pending"
+    if pending == PENDING_OUTFIT_USER_IMAGE_REQUIRED:
+        return "handle_outfit_user_image_pending"
 
     return "classify_image_intent"
 
 
-def route_after_image_intent(state: ChatbotState) -> str:
-    """
-    image intent 분류 결과에 따라 다음 노드를 결정한다.
+def _route_after_mood_pending(state: ChatbotState) -> str:
+    if state.get("intent") == INTENT_MOOD_CHOICE:
+        return "retrieve_context"
+    return "classify_intent"
 
-    - image_none: image_url이 없으므로 기존 텍스트 흐름으로 이동한다.
-    - image_synthesis: 합성 요청이므로 RAG를 건너뛰고 임시 응답 노드로 이동한다.
-    - 나머지 이미지 intent: 이미지 분석 후 RAG 흐름을 탄다.
-    """
+
+def route_after_image_intent(state: ChatbotState) -> str:
     image_intent = state.get("image_intent", IMAGE_INTENT_NONE)
 
     if image_intent == IMAGE_INTENT_SYNTHESIS:
@@ -60,19 +96,10 @@ def route_after_image_intent(state: ChatbotState) -> str:
     if image_intent == IMAGE_INTENT_NONE:
         return "classify_intent"
 
-    # image_fit_check / image_style_match / image_makeup_match / image_general_analysis
     return "analyze_image_if_needed"
 
 
 def route_after_intent(state: ChatbotState) -> str:
-    """
-    intent 분류 후 다음 노드를 결정한다.
-
-    - bypass intent는 고정 응답으로 보낸다.
-    - mood_selection은 선택 UI를 반환한다.
-    - unclear는 객관식 재질문으로 보낸다.
-    - 나머지 피드백 상담 intent는 RAG 검색으로 보낸다.
-    """
     intent = state.get("intent")
 
     if should_bypass_llm(intent):
@@ -81,28 +108,56 @@ def route_after_intent(state: ChatbotState) -> str:
     if intent == INTENT_MOOD_SELECTION:
         return "ask_mood_selection"
 
+    if intent in OUTFIT_INTENTS:
+        if intent == INTENT_OUTFIT_RECOMMENDATION and not state.get("outfit_context"):
+            return "ask_outfit_context_selection"
+        return "check_hair_makeup_ready"
+
     if state.get("needs_clarification"):
         return "ask_clarification"
 
     return "retrieve_context"
 
 
-def build_chatbot_graph():
-    """
-    chatbot_rag LangGraph를 생성한다.
+def _route_after_hair_makeup_check(state: ChatbotState) -> str:
+    if not state.get("outfit_prerequisites_met", True):
+        return "update_memory"
+    if state.get("image_url") and state.get("outfit_intent") == INTENT_OUTFIT_FIT_CHECK:
+        return "analyze_outfit_image"
+    return "generate_outfit_answer"
 
-    흐름:
-        check_analysis_exists
-        → classify_image_intent
-        → route_after_image_intent:
-            image_none          → classify_intent
-            image_synthesis     → handle_image_synthesis_request → update_memory
-            그 외 이미지 intent  → analyze_image_if_needed → classify_intent
-                                  → retrieve_context → generate_answer → update_memory
-    """
+
+def _route_after_synthesis_confirmation(state: ChatbotState) -> str:
+    action = state.get("outfit_synthesis_action")
+    if action == "cancel":
+        return "update_memory"
+    if action == "select_option":
+        return "ask_outfit_option_selection"
+    return "check_user_image_for_synthesis"
+
+
+def _route_after_image_check(state: ChatbotState) -> str:
+    if state.get("pending_selection") == PENDING_OUTFIT_USER_IMAGE_REQUIRED:
+        return "update_memory"
+    return "run_outfit_synthesis"
+
+
+def _route_after_user_image_pending(state: ChatbotState) -> str:
+    if state.get("image_url"):
+        return "run_outfit_synthesis"
+    return "update_memory"
+
+
+# ---------------------------------------------------------------------------
+# Graph 빌더
+# ---------------------------------------------------------------------------
+
+def build_chatbot_graph():
     graph = StateGraph(ChatbotState)
 
+    # 기존 노드
     graph.add_node("check_analysis_exists", check_analysis_exists)
+    graph.add_node("resolve_pending_selection", resolve_pending_selection)
     graph.add_node("classify_image_intent", classify_image_intent)
     graph.add_node("analyze_image_if_needed", analyze_image_if_needed)
     graph.add_node("handle_image_synthesis_request", handle_image_synthesis_request)
@@ -114,17 +169,96 @@ def build_chatbot_graph():
     graph.add_node("generate_answer", generate_answer_node)
     graph.add_node("update_memory", update_memory)
 
+    # mood pending 핸들러
+    graph.add_node("handle_mood_pending", handle_mood_pending)
+
+    # outfit 신규 노드
+    graph.add_node("check_hair_makeup_ready", check_hair_makeup_ready)
+    graph.add_node("analyze_outfit_image", analyze_outfit_image)
+    graph.add_node("ask_outfit_context_selection", ask_outfit_context_selection)
+    graph.add_node("handle_outfit_context_pending", handle_outfit_context_pending)
+    graph.add_node("generate_outfit_answer", generate_outfit_answer)
+    graph.add_node("handle_synthesis_confirmation", handle_synthesis_confirmation)
+    graph.add_node("ask_outfit_option_selection", ask_outfit_option_selection)
+    graph.add_node("handle_outfit_option_pending", handle_outfit_option_pending)
+    graph.add_node("check_user_image_for_synthesis", check_user_image_for_synthesis)
+    graph.add_node("handle_outfit_user_image_pending", handle_outfit_user_image_pending)
+    graph.add_node("run_outfit_synthesis", run_outfit_synthesis)
+
+    # ── 엣지 ──────────────────────────────────────────────────────────────────
+
     graph.add_edge(START, "check_analysis_exists")
 
     graph.add_conditional_edges(
         "check_analysis_exists",
         route_after_analysis,
         {
-            "classify_image_intent": "classify_image_intent",
+            "resolve_pending_selection": "resolve_pending_selection",
             "update_memory": "update_memory",
         },
     )
 
+    graph.add_conditional_edges(
+        "resolve_pending_selection",
+        _route_by_pending,
+        {
+            "handle_mood_pending": "handle_mood_pending",
+            "handle_outfit_context_pending": "handle_outfit_context_pending",
+            "handle_synthesis_confirmation": "handle_synthesis_confirmation",
+            "handle_outfit_option_pending": "handle_outfit_option_pending",
+            "handle_outfit_user_image_pending": "handle_outfit_user_image_pending",
+            "classify_image_intent": "classify_image_intent",
+        },
+    )
+
+    # mood pending 처리 후 분기
+    graph.add_conditional_edges(
+        "handle_mood_pending",
+        _route_after_mood_pending,
+        {
+            "retrieve_context": "retrieve_context",
+            "classify_intent": "classify_intent",
+        },
+    )
+
+    # outfit 상황 선택 완료 → 의상 답변 생성
+    graph.add_edge("handle_outfit_context_pending", "generate_outfit_answer")
+
+    # 합성 확인 버튼 처리 후 분기
+    graph.add_conditional_edges(
+        "handle_synthesis_confirmation",
+        _route_after_synthesis_confirmation,
+        {
+            "update_memory": "update_memory",
+            "ask_outfit_option_selection": "ask_outfit_option_selection",
+            "check_user_image_for_synthesis": "check_user_image_for_synthesis",
+        },
+    )
+
+    # 의상 후보 선택 완료 → 유저 사진 확인
+    graph.add_edge("handle_outfit_option_pending", "check_user_image_for_synthesis")
+
+    # 유저 사진 확인 후 분기
+    graph.add_conditional_edges(
+        "check_user_image_for_synthesis",
+        _route_after_image_check,
+        {
+            "update_memory": "update_memory",
+            "run_outfit_synthesis": "run_outfit_synthesis",
+        },
+    )
+
+    # 사진 업로드 대기 처리 후 분기
+    graph.add_conditional_edges(
+        "handle_outfit_user_image_pending",
+        _route_after_user_image_pending,
+        {
+            "run_outfit_synthesis": "run_outfit_synthesis",
+            "update_memory": "update_memory",
+        },
+    )
+
+    # 기존 image intent 흐름
     graph.add_conditional_edges(
         "classify_image_intent",
         route_after_image_intent,
@@ -135,7 +269,6 @@ def build_chatbot_graph():
         },
     )
 
-    # 이미지 분석 후 항상 텍스트 intent 분류로 이동한다.
     graph.add_edge("analyze_image_if_needed", "classify_intent")
 
     graph.add_conditional_edges(
@@ -144,21 +277,45 @@ def build_chatbot_graph():
         {
             "ask_clarification": "ask_clarification",
             "ask_mood_selection": "ask_mood_selection",
+            "ask_outfit_context_selection": "ask_outfit_context_selection",
+            "check_hair_makeup_ready": "check_hair_makeup_ready",
             "generate_non_rag_answer": "generate_non_rag_answer",
             "retrieve_context": "retrieve_context",
         },
     )
 
+    # outfit 처리 경로
+    graph.add_conditional_edges(
+        "check_hair_makeup_ready",
+        _route_after_hair_makeup_check,
+        {
+            "update_memory": "update_memory",
+            "analyze_outfit_image": "analyze_outfit_image",
+            "generate_outfit_answer": "generate_outfit_answer",
+        },
+    )
+
+    graph.add_edge("analyze_outfit_image", "generate_outfit_answer")
+
+    # update_memory로 수렴하는 엣지들
     graph.add_edge("handle_image_synthesis_request", "update_memory")
     graph.add_edge("ask_clarification", "update_memory")
     graph.add_edge("ask_mood_selection", "update_memory")
+    graph.add_edge("ask_outfit_context_selection", "update_memory")
+    graph.add_edge("ask_outfit_option_selection", "update_memory")
     graph.add_edge("generate_non_rag_answer", "update_memory")
+    graph.add_edge("generate_outfit_answer", "update_memory")
+    graph.add_edge("run_outfit_synthesis", "update_memory")
     graph.add_edge("retrieve_context", "generate_answer")
     graph.add_edge("generate_answer", "update_memory")
     graph.add_edge("update_memory", END)
 
     return graph.compile()
 
+
+# ---------------------------------------------------------------------------
+# 외부 진입점
+# ---------------------------------------------------------------------------
 
 def run_chatbot(
     *,
@@ -177,12 +334,6 @@ def run_chatbot(
     user_profile: dict[str, Any] | None = None,
     chat_history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """
-    외부에서 chatbot_rag를 실행할 때 사용하는 대표 함수.
-
-    현재 챗봇은 추천 결과에 대한 피드백/후속 질문 전용이다.
-    feedback_text를 우선 사용하고, 기존 호출 호환을 위해 user_message도 허용한다.
-    """
     graph = build_chatbot_graph()
 
     normalized_target_type = target_type
@@ -223,20 +374,22 @@ def run_chatbot(
         "needs_clarification": result.get("needs_clarification", False),
         "clarification_options": result.get("clarification_options", []),
         "detected_style": result.get("detected_style"),
-        "detected_style_is_recommended": result.get(
-            "detected_style_is_recommended",
-            False,
-        ),
+        "detected_style_is_recommended": result.get("detected_style_is_recommended", False),
+        # outfit 관련
+        "outfit_intent": result.get("outfit_intent"),
+        "outfit_context": result.get("outfit_context"),
+        "outfit_options": result.get("outfit_options", []),
+        "selected_outfit_option": result.get("selected_outfit_option"),
+        "pending_outfit_synthesis": result.get("pending_outfit_synthesis"),
+        # retrieval / memory
         "retrieval_info": result.get(
             "retrieval_info",
-            {
-                "retrieved_count": 0,
-                "fallback_stage": "none",
-            },
+            {"retrieved_count": 0, "fallback_stage": "none"},
         ),
         "updated_chat_history": result.get("updated_chat_history", []),
         "updated_user_profile": result.get("updated_user_profile", {}),
         "error": result.get("error"),
+        # image
         "image_intent": result.get("image_intent"),
         "image_intent_debug": result.get("image_intent_debug"),
         "image_is_synthesis_request": result.get("image_is_synthesis_request", False),

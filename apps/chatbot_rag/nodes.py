@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from apps.chatbot_rag.bypass_gate import get_bypass_response
 from apps.chatbot_rag.intent_classifier import get_intent
-from apps.chatbot_rag.intent_keywords import detect_question_category
+from apps.chatbot_rag.intent_keywords import (
+    _extract_outfit_context_from_message,
+    detect_question_category,
+)
 from apps.chatbot_rag.intents import (
     CATEGORY_HAIR,
     CATEGORY_MAKEUP,
@@ -14,8 +18,16 @@ from apps.chatbot_rag.intents import (
     INTENT_MISSING_ANALYSIS,
     INTENT_MOOD_CHOICE,
     INTENT_NOISE,
+    INTENT_OUTFIT_EVENT_COORDINATION,
+    INTENT_OUTFIT_FIT_CHECK,
+    INTENT_OUTFIT_RECOMMENDATION,
     INTENT_SMALLTALK,
     INTENT_UNCLEAR,
+    OUTFIT_INTENTS,
+    PENDING_OUTFIT_CONTEXT,
+    PENDING_OUTFIT_OPTION_SELECTION,
+    PENDING_OUTFIT_SYNTHESIS_CONFIRMATION,
+    PENDING_OUTFIT_USER_IMAGE_REQUIRED,
     PENDING_SELECTION_MOOD,
 )
 from apps.chatbot_rag.memory import (
@@ -24,6 +36,7 @@ from apps.chatbot_rag.memory import (
     merge_user_profile,
 )
 from apps.chatbot_rag.makeup_catalog import find_makeup_style_in_message
+from apps.chatbot_rag.outfit_prompts import build_outfit_coordination_prompt, parse_outfit_response
 from apps.chatbot_rag.selection_options import (
     MOOD_OPTIONS,
     build_mood_selection_title,
@@ -36,7 +49,12 @@ from apps.chatbot_rag.static_responses import (
 )
 from apps.chatbot_rag.state import ChatbotState
 from apps.chatbot_rag.style_catalog import find_hair_style_in_message
-from apps.rag_core.generator import generate_chat_answer
+from apps.rag_core.generator import (
+    generate_chat_answer,
+    get_chat_model,
+    invoke_with_retry,
+    normalize_model_content,
+)
 from apps.rag_core.retriever import retrieve_docs
 from apps.rag_core.schemas import ChatGenerationInput, RetrievalResult
 
@@ -282,6 +300,44 @@ def _is_recommended_style(
     return False
 
 
+def handle_mood_pending(state: ChatbotState) -> ChatbotState:
+    """
+    mood 선택 버튼 응답을 처리한다. (classify_intent에서 분리)
+    """
+    user_message = state.get("user_message", "")
+    selected_option = state.get("selected_option") or {}
+    user_profile = state.get("user_profile") or {}
+
+    target_type = _normalize_target_type(state.get("target_type"))
+    category = target_type or detect_question_category(user_message)
+
+    selected_option_type = selected_option.get("type")
+    selected_option_id = selected_option.get("id")
+
+    if selected_option_type == PENDING_SELECTION_MOOD:
+        mood_option = get_mood_option_by_id(selected_option_id)
+        if mood_option:
+            state["intent"] = INTENT_MOOD_CHOICE
+            state["intent_debug"] = {
+                "classifier": "selection",
+                "selected_option_id": selected_option_id,
+            }
+            state["category"] = category
+            state["selected_mood_id"] = mood_option["id"]
+            state["selected_mood"] = mood_option["label"]
+            state["selected_mood_keywords"] = mood_option["mood_keywords"]
+            state["pending_selection"] = None
+            state["needs_clarification"] = False
+            state["clarification_options"] = []
+            state["selection"] = None
+            return state
+
+    # 선택값 불일치 시 일반 메시지로 fallback — intent를 비워 classify_intent로 재분류
+    state["intent"] = None
+    state["pending_selection"] = None
+    return state
+
+
 def classify_intent(state: ChatbotState) -> ChatbotState:
     """
     추천 결과에 대한 사용자 피드백 질문의 의도를 분류한다.
@@ -295,35 +351,9 @@ def classify_intent(state: ChatbotState) -> ChatbotState:
     personal_color = state.get("personal_color")
     previous_recommendations = state.get("previous_recommendations") or []
     applied_style_key = state.get("applied_style_key")
-    selected_option = state.get("selected_option")
-    user_profile = state.get("user_profile") or {}
 
     target_type = _normalize_target_type(state.get("target_type"))
     category = target_type or detect_question_category(user_message)
-
-    pending_selection = state.get("pending_selection") or user_profile.get("pending_selection")
-    if pending_selection == PENDING_SELECTION_MOOD and selected_option:
-        selected_option_type = selected_option.get("type")
-        selected_option_id = selected_option.get("id")
-
-        if selected_option_type == PENDING_SELECTION_MOOD:
-            mood_option = get_mood_option_by_id(selected_option_id)
-
-            if mood_option:
-                state["intent"] = INTENT_MOOD_CHOICE
-                state["intent_debug"] = {
-                    "classifier": "selection",
-                    "selected_option_id": selected_option_id,
-                }
-                state["category"] = category
-                state["selected_mood_id"] = mood_option["id"]
-                state["selected_mood"] = mood_option["label"]
-                state["selected_mood_keywords"] = mood_option["mood_keywords"]
-                state["pending_selection"] = None
-                state["needs_clarification"] = False
-                state["clarification_options"] = []
-                state["selection"] = None
-                return state
 
     intent, intent_debug = get_intent(user_message)
     state["intent_debug"] = intent_debug
@@ -623,17 +653,28 @@ def update_memory(state: ChatbotState) -> ChatbotState:
 
     new_preferences = extract_simple_user_preferences(user_message)
 
-    if state.get("pending_selection"):
-        new_preferences["pending_selection"] = state.get("pending_selection")
+    # pending_selection: None이면 user_profile에서도 제거
+    new_preferences["pending_selection"] = state.get("pending_selection")
 
     if state.get("selected_mood"):
         new_preferences["selected_mood"] = state.get("selected_mood")
         new_preferences["selected_mood_id"] = state.get("selected_mood_id")
-        new_preferences["selected_mood_keywords"] = state.get(
-            "selected_mood_keywords",
-            [],
-        )
+        new_preferences["selected_mood_keywords"] = state.get("selected_mood_keywords", [])
         new_preferences["pending_selection"] = None
+
+    # outfit 관련 필드 보존
+    if state.get("outfit_intent"):
+        new_preferences["outfit_intent"] = state.get("outfit_intent")
+    if state.get("outfit_context"):
+        new_preferences["outfit_context"] = state.get("outfit_context")
+    if state.get("outfit_options"):
+        new_preferences["outfit_options"] = state.get("outfit_options")
+    if state.get("selected_outfit_option"):
+        new_preferences["selected_outfit_option"] = state.get("selected_outfit_option")
+    # pending_outfit_synthesis: 명시적으로 None이 되면 제거, 값이 있으면 저장
+    pending_synthesis = state.get("pending_outfit_synthesis")
+    if "pending_outfit_synthesis" in state:
+        new_preferences["pending_outfit_synthesis"] = pending_synthesis
 
     updated_user_profile = merge_user_profile(
         user_profile=state.get("user_profile") or {},
@@ -643,4 +684,508 @@ def update_memory(state: ChatbotState) -> ChatbotState:
     state["updated_chat_history"] = updated_chat_history
     state["updated_user_profile"] = updated_user_profile
 
+    return state
+
+
+# ---------------------------------------------------------------------------
+# pending_selection 라우터 노드
+# ---------------------------------------------------------------------------
+
+def resolve_pending_selection(state: ChatbotState) -> ChatbotState:
+    """
+    user_profile에 저장된 pending_selection과 outfit 관련 필드를
+    state로 복원한다.
+    """
+    user_profile = state.get("user_profile") or {}
+
+    if not state.get("pending_selection"):
+        pending = user_profile.get("pending_selection")
+        if pending:
+            state["pending_selection"] = pending
+
+    if not state.get("outfit_options"):
+        outfit_options = user_profile.get("outfit_options")
+        if outfit_options:
+            state["outfit_options"] = outfit_options
+
+    if not state.get("pending_outfit_synthesis"):
+        pending_synthesis = user_profile.get("pending_outfit_synthesis")
+        if pending_synthesis:
+            state["pending_outfit_synthesis"] = pending_synthesis
+
+    if not state.get("outfit_intent"):
+        outfit_intent = user_profile.get("outfit_intent")
+        if outfit_intent:
+            state["outfit_intent"] = outfit_intent
+
+    if not state.get("outfit_context"):
+        outfit_context = user_profile.get("outfit_context")
+        if outfit_context:
+            state["outfit_context"] = outfit_context
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# outfit 전제조건 확인
+# ---------------------------------------------------------------------------
+
+def check_hair_makeup_ready(state: ChatbotState) -> ChatbotState:
+    """헤어/메이크업 추천이 모두 완료됐는지 확인한다."""
+    previous_recommendations = state.get("previous_recommendations") or []
+
+    has_hair = any(r.get("category") == CATEGORY_HAIR for r in previous_recommendations)
+    has_makeup = any(r.get("category") == CATEGORY_MAKEUP for r in previous_recommendations)
+
+    if not (has_hair and has_makeup):
+        state["outfit_prerequisites_met"] = False
+        state["answer"] = (
+            "아직 헤어와 메이크업 추천 결과가 없어 의상 추천을 진행하기 어려워요.\n"
+            "먼저 헤어와 메이크업 분석을 완료한 뒤 의상 추천을 도와드릴게요."
+        )
+        state["retrieval_result"] = RetrievalResult(
+            query=state.get("user_message", ""),
+            documents=[],
+            retrieved_count=0,
+            fallback_stage=None,
+            used_filter={},
+        )
+        state["retrieval_info"] = {
+            "retrieved_count": 0,
+            "fallback_stage": "none",
+            "used_filter": {},
+            "skipped_rag": True,
+            "skip_reason": "outfit_prerequisites_not_met",
+        }
+        return state
+
+    state["outfit_prerequisites_met"] = True
+    intent = state.get("intent")
+    state["outfit_intent"] = intent
+
+    # outfit_event_coordination: 메시지에서 상황 추출
+    if intent == INTENT_OUTFIT_EVENT_COORDINATION and not state.get("outfit_context"):
+        extracted = _extract_outfit_context_from_message(state.get("user_message", ""))
+        state["outfit_context"] = extracted
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# outfit 이미지 분석
+# ---------------------------------------------------------------------------
+
+def analyze_outfit_image(state: ChatbotState) -> ChatbotState:
+    """
+    의상 이미지를 vision LLM으로 분석한다. 현재는 stub.
+    """
+    image_url = state.get("image_url")
+    if not image_url:
+        return state
+
+    # TODO: Gemini Vision API로 의상 이미지 분석 연동
+    state["outfit_image_analysis"] = {
+        "outfit_type": "",
+        "colors": [],
+        "silhouette": "",
+        "formality": "",
+        "style_mood": [],
+        "match_points": [],
+        "risk_points": [],
+        "confidence": "low",
+    }
+    return state
+
+
+# ---------------------------------------------------------------------------
+# outfit 상황 선택 요청
+# ---------------------------------------------------------------------------
+
+_OUTFIT_CONTEXT_OPTIONS = [
+    {"id": "daily", "label": "데일리룩"},
+    {"id": "date", "label": "데이트룩"},
+    {"id": "wedding_guest", "label": "결혼식 하객룩"},
+    {"id": "office", "label": "출근/면접룩"},
+    {"id": "formal", "label": "격식 있는 자리"},
+    {"id": "casual", "label": "꾸안꾸 캐주얼"},
+]
+
+
+def ask_outfit_context_selection(state: ChatbotState) -> ChatbotState:
+    """상황이 없는 일반 의상 추천 질문에서 상황 선택 버튼을 제시한다."""
+    state["outfit_intent"] = INTENT_OUTFIT_RECOMMENDATION
+    state["answer"] = "어떤 상황에 맞춰 추천해드릴까요?"
+    state["pending_selection"] = PENDING_OUTFIT_CONTEXT
+    state["selection"] = {
+        "type": PENDING_OUTFIT_CONTEXT,
+        "options": _OUTFIT_CONTEXT_OPTIONS,
+    }
+    state["retrieval_result"] = RetrievalResult(
+        query=state.get("user_message", ""),
+        documents=[],
+        retrieved_count=0,
+        fallback_stage=None,
+        used_filter={},
+    )
+    state["retrieval_info"] = {
+        "retrieved_count": 0,
+        "fallback_stage": "none",
+        "used_filter": {},
+        "skipped_rag": True,
+        "skip_reason": "pending_outfit_context",
+    }
+    return state
+
+
+# ---------------------------------------------------------------------------
+# outfit 상황 선택 완료 처리
+# ---------------------------------------------------------------------------
+
+def handle_outfit_context_pending(state: ChatbotState) -> ChatbotState:
+    """상황 선택 결과를 outfit_context에 저장한다."""
+    selected_option = state.get("selected_option") or {}
+    outfit_context = selected_option.get("id")
+
+    state["outfit_context"] = outfit_context
+    state["outfit_intent"] = INTENT_OUTFIT_RECOMMENDATION
+    state["intent"] = INTENT_OUTFIT_RECOMMENDATION
+    state["pending_selection"] = None
+    state["selection"] = None
+    state["outfit_prerequisites_met"] = True
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# outfit 답변 생성 (RAG 없이 LLM coordination prompt)
+# ---------------------------------------------------------------------------
+
+def generate_outfit_answer(state: ChatbotState) -> ChatbotState:
+    """LLM coordination prompt로 의상 추천/판단 답변을 생성한다."""
+    previous_recommendations = state.get("previous_recommendations") or []
+    hair_recs = [r for r in previous_recommendations if r.get("category") == CATEGORY_HAIR]
+    makeup_recs = [r for r in previous_recommendations if r.get("category") == CATEGORY_MAKEUP]
+
+    hair_summary = hair_recs[0] if hair_recs else {}
+    makeup_summary = makeup_recs[0] if makeup_recs else {}
+
+    outfit_intent = state.get("outfit_intent") or state.get("intent")
+
+    prompt = build_outfit_coordination_prompt(
+        gender=state.get("gender"),
+        face_shape=state.get("face_shape"),
+        face_proportion=state.get("face_proportion"),
+        personal_color=state.get("personal_color"),
+        hair_summary=hair_summary,
+        makeup_summary=makeup_summary,
+        outfit_context=state.get("outfit_context"),
+        outfit_image_analysis=state.get("outfit_image_analysis"),
+        outfit_intent=outfit_intent,
+        user_message=state.get("user_message", ""),
+        previous_analysis=state.get("previous_analysis"),
+    )
+
+    if os.getenv("RAG_GENERATOR_MODE", "gemini") == "mock":
+        answer = "현재는 개발용 mock 의상 추천 응답입니다."
+        outfit_options: list[dict] = [
+            {"id": "look_1", "label": "모크 룩 1", "description": "개발용 의상 후보", "colors": [], "items": [], "avoid": []},
+            {"id": "look_2", "label": "모크 룩 2", "description": "개발용 의상 후보", "colors": [], "items": [], "avoid": []},
+        ]
+        if outfit_intent == INTENT_OUTFIT_FIT_CHECK:
+            outfit_options = [{"id": "uploaded_outfit", "label": "업로드한 의상", "source": "image"}]
+    else:
+        chat_model = get_chat_model()
+        response = invoke_with_retry(chat_model, prompt)
+        content = normalize_model_content(getattr(response, "content", response))
+        answer, outfit_options = parse_outfit_response(content, outfit_intent)
+
+    state["outfit_options"] = outfit_options
+    state["outfit_intent"] = outfit_intent
+
+    if outfit_intent == INTENT_OUTFIT_FIT_CHECK:
+        synthesis_offer = "이 의상을 고객님 사진에 맞춰 합성해서 보여드릴까요?"
+    else:
+        synthesis_offer = "추천드린 의상 중 하나를 고객님 사진에 합성해서 보여드릴까요?"
+
+    state["answer"] = f"{answer}\n\n{synthesis_offer}"
+    state["pending_selection"] = PENDING_OUTFIT_SYNTHESIS_CONFIRMATION
+    state["selection"] = {
+        "type": PENDING_OUTFIT_SYNTHESIS_CONFIRMATION,
+        "options": [
+            {"id": "confirm_outfit_synthesis", "label": "합성 진행하기"},
+            {"id": "cancel_outfit_synthesis", "label": "취소하기"},
+        ],
+    }
+
+    user_profile = state.get("user_profile") or {}
+    state["pending_outfit_synthesis"] = {
+        "question_type": outfit_intent,
+        "outfit_context": state.get("outfit_context"),
+        "user_image_url": user_profile.get("user_image_url"),
+        "outfit_image_url": state.get("image_url") if outfit_intent == INTENT_OUTFIT_FIT_CHECK else None,
+        "selected_outfit_option": None,
+        "outfit_options": outfit_options,
+        "hair_summary": hair_summary,
+        "makeup_summary": makeup_summary,
+        "user_profile": {
+            "gender": state.get("gender"),
+            "face_shape": state.get("face_shape"),
+            "face_proportion": state.get("face_proportion"),
+            "personal_color": state.get("personal_color"),
+        },
+        "original_user_message": state.get("user_message", ""),
+    }
+
+    state["retrieval_result"] = RetrievalResult(
+        query=state.get("user_message", ""),
+        documents=[],
+        retrieved_count=0,
+        fallback_stage=None,
+        used_filter={},
+    )
+    state["retrieval_info"] = {
+        "retrieved_count": 0,
+        "fallback_stage": "none",
+        "used_filter": {},
+        "skipped_rag": True,
+        "skip_reason": outfit_intent,
+    }
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# 합성 확인 버튼 처리
+# ---------------------------------------------------------------------------
+
+def handle_synthesis_confirmation(state: ChatbotState) -> ChatbotState:
+    """합성 진행하기 / 취소하기 선택을 처리한다."""
+    selected_option = state.get("selected_option") or {}
+    selected_id = selected_option.get("id")
+
+    if selected_id == "cancel_outfit_synthesis":
+        state["outfit_synthesis_action"] = "cancel"
+        state["pending_outfit_synthesis"] = None
+        state["pending_selection"] = None
+        state["selection"] = None
+        state["outfit_options"] = []
+        state["answer"] = "의상 합성을 취소했습니다. 다른 궁금한 점이 있으시면 언제든 말씀해 주세요."
+        state["retrieval_result"] = RetrievalResult(
+            query=state.get("user_message", ""),
+            documents=[],
+            retrieved_count=0,
+            fallback_stage=None,
+            used_filter={},
+        )
+        state["retrieval_info"] = {
+            "retrieved_count": 0,
+            "fallback_stage": "none",
+            "used_filter": {},
+            "skipped_rag": True,
+            "skip_reason": "outfit_synthesis_cancelled",
+        }
+        return state
+
+    # confirm 선택
+    outfit_options = state.get("outfit_options") or (state.get("pending_outfit_synthesis") or {}).get("outfit_options") or []
+    state["pending_selection"] = None
+    state["selection"] = None
+
+    if len(outfit_options) > 1:
+        state["outfit_synthesis_action"] = "select_option"
+    else:
+        # 단일 의상이면 바로 선택 처리
+        if outfit_options:
+            single = outfit_options[0]
+            state["selected_outfit_option"] = single
+            pending_synthesis = dict(state.get("pending_outfit_synthesis") or {})
+            pending_synthesis["selected_outfit_option"] = single
+            state["pending_outfit_synthesis"] = pending_synthesis
+        state["outfit_synthesis_action"] = "check_image"
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# 의상 후보 선택 요청
+# ---------------------------------------------------------------------------
+
+def ask_outfit_option_selection(state: ChatbotState) -> ChatbotState:
+    """추천된 의상 후보 중 합성할 룩을 선택하도록 요청한다."""
+    outfit_options = state.get("outfit_options") or []
+
+    state["answer"] = "어떤 룩으로 합성할까요?"
+    state["pending_selection"] = PENDING_OUTFIT_OPTION_SELECTION
+    state["selection"] = {
+        "type": PENDING_OUTFIT_OPTION_SELECTION,
+        "options": [{"id": opt["id"], "label": opt["label"]} for opt in outfit_options],
+    }
+    state["retrieval_result"] = RetrievalResult(
+        query=state.get("user_message", ""),
+        documents=[],
+        retrieved_count=0,
+        fallback_stage=None,
+        used_filter={},
+    )
+    state["retrieval_info"] = {
+        "retrieved_count": 0,
+        "fallback_stage": "none",
+        "used_filter": {},
+        "skipped_rag": True,
+        "skip_reason": "pending_outfit_option_selection",
+    }
+    return state
+
+
+# ---------------------------------------------------------------------------
+# 의상 후보 선택 완료 처리
+# ---------------------------------------------------------------------------
+
+def handle_outfit_option_pending(state: ChatbotState) -> ChatbotState:
+    """선택된 의상 후보를 selected_outfit_option에 저장한다."""
+    selected_option = state.get("selected_option") or {}
+    selected_id = selected_option.get("id")
+
+    outfit_options = (
+        state.get("outfit_options")
+        or (state.get("pending_outfit_synthesis") or {}).get("outfit_options")
+        or []
+    )
+    selected = next((opt for opt in outfit_options if opt.get("id") == selected_id), None)
+
+    state["selected_outfit_option"] = selected
+    state["pending_selection"] = None
+    state["selection"] = None
+
+    if selected:
+        pending_synthesis = dict(state.get("pending_outfit_synthesis") or {})
+        pending_synthesis["selected_outfit_option"] = selected
+        state["pending_outfit_synthesis"] = pending_synthesis
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# 유저 사진 확인
+# ---------------------------------------------------------------------------
+
+def check_user_image_for_synthesis(state: ChatbotState) -> ChatbotState:
+    """
+    합성에 사용할 유저 사진 URL을 확인한다.
+    헤어/메이크업 합성 완료 후 저장된 사진을 user_profile에서 가져온다.
+    """
+    user_profile = state.get("user_profile") or {}
+    pending_synthesis = state.get("pending_outfit_synthesis") or {}
+
+    user_image_url = (
+        pending_synthesis.get("user_image_url")
+        or user_profile.get("user_image_url")
+        or user_profile.get("synthesized_image_url")
+    )
+
+    if user_image_url:
+        pending_synthesis = dict(pending_synthesis)
+        pending_synthesis["user_image_url"] = user_image_url
+        state["pending_outfit_synthesis"] = pending_synthesis
+        return state
+
+    # 사진 없음
+    state["answer"] = (
+        "합성을 진행하려면 고객님 사진이 필요해요.\n"
+        "현재 버전에서는 사진 업로드 후 합성 기능을 사용할 수 있어요.\n"
+        "사진 업로드 기능이 연결되면 바로 합성을 진행할 수 있도록 준비해둘게요."
+    )
+    state["pending_selection"] = PENDING_OUTFIT_USER_IMAGE_REQUIRED
+    state["selection"] = None
+    state["retrieval_result"] = RetrievalResult(
+        query=state.get("user_message", ""),
+        documents=[],
+        retrieved_count=0,
+        fallback_stage=None,
+        used_filter={},
+    )
+    state["retrieval_info"] = {
+        "retrieved_count": 0,
+        "fallback_stage": "none",
+        "used_filter": {},
+        "skipped_rag": True,
+        "skip_reason": "outfit_user_image_required",
+    }
+    return state
+
+
+# ---------------------------------------------------------------------------
+# 유저 사진 대기 처리
+# ---------------------------------------------------------------------------
+
+def handle_outfit_user_image_pending(state: ChatbotState) -> ChatbotState:
+    """사진 업로드 대기 상태에서 image_url이 들어오면 합성을 이어서 진행한다."""
+    image_url = state.get("image_url")
+
+    if image_url:
+        pending_synthesis = dict(state.get("pending_outfit_synthesis") or {})
+        pending_synthesis["user_image_url"] = image_url
+        state["pending_outfit_synthesis"] = pending_synthesis
+        state["pending_selection"] = None
+        return state
+
+    state["answer"] = (
+        "합성을 진행하려면 고객님 사진이 필요해요.\n"
+        "얼굴과 상반신이 잘 보이는 사진을 업로드해 주세요."
+    )
+    state["pending_selection"] = PENDING_OUTFIT_USER_IMAGE_REQUIRED
+    state["retrieval_result"] = RetrievalResult(
+        query=state.get("user_message", ""),
+        documents=[],
+        retrieved_count=0,
+        fallback_stage=None,
+        used_filter={},
+    )
+    state["retrieval_info"] = {
+        "retrieved_count": 0,
+        "fallback_stage": "none",
+        "used_filter": {},
+        "skipped_rag": True,
+        "skip_reason": "outfit_user_image_required",
+    }
+    return state
+
+
+# ---------------------------------------------------------------------------
+# 의상 합성 실행
+# ---------------------------------------------------------------------------
+
+def run_outfit_synthesis(state: ChatbotState) -> ChatbotState:
+    """
+    의상 합성을 실행한다. 현재는 stub — 실제 합성 모듈 연동 시 교체한다.
+    """
+    pending_synthesis = state.get("pending_outfit_synthesis") or {}
+    selected_outfit = pending_synthesis.get("selected_outfit_option") or {}
+    outfit_label = selected_outfit.get("label", "선택한 의상")
+
+    # TODO: 실제 이미지 합성 API 연동
+    state["answer"] = (
+        f"'{outfit_label}'으로 합성을 준비 중이에요. "
+        "합성 기능은 추후 연결 예정입니다."
+    )
+    state["pending_selection"] = None
+    state["selection"] = None
+    state["pending_outfit_synthesis"] = None
+    state["outfit_options"] = []
+    state["selected_outfit_option"] = None
+    state["outfit_synthesis_action"] = None
+    state["retrieval_result"] = RetrievalResult(
+        query=state.get("user_message", ""),
+        documents=[],
+        retrieved_count=0,
+        fallback_stage=None,
+        used_filter={},
+    )
+    state["retrieval_info"] = {
+        "retrieved_count": 0,
+        "fallback_stage": "none",
+        "used_filter": {},
+        "skipped_rag": True,
+        "skip_reason": "outfit_synthesis",
+    }
     return state
