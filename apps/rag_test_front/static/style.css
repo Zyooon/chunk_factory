@@ -457,6 +457,36 @@ pre {
   color: #1c1c1e;
 }
 
+.chat-selection {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 88%;
+}
+
+.selection-btn {
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid #007aff;
+  background: #fff;
+  color: #007aff;
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.selection-btn:hover {
+  background: #007aff;
+  color: #fff;
+}
+
+.selection-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .chat-input-area {
   display: flex;
   flex-direction: column;

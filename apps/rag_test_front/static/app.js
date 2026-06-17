@@ -4,6 +4,7 @@
 const appState = {
   chatHistory: [],
   ragCoverage: new Set(),   // ChromaDB에 데이터가 있는 style_code 집합
+  pendingSelection: null,   // 현재 대기 중인 선택 타입 ("mood" 등)
 };
 
 const MAKEUP_STYLES_BY_GENDER_AND_PERSONAL_COLOR = {
@@ -443,9 +444,14 @@ async function handleChat() {
 
     appendBubble('assistant', data.answer || '(응답 없음)');
     appState.chatHistory = data.updated_chat_history || appState.chatHistory;
+    appState.pendingSelection = data.pending_selection || null;
 
     if (data.updated_user_profile && Object.keys(data.updated_user_profile).length > 0) {
       $('chat-user-profile').value = JSON.stringify(data.updated_user_profile, null, 2);
+    }
+
+    if (data.selection && data.selection.options && data.selection.options.length > 0) {
+      appendSelectionButtons(data.selection);
     }
 
     renderChatResult(data);
@@ -493,9 +499,101 @@ function appendBubble(role, text) {
   container.scrollTop = container.scrollHeight;
 }
 
+// ── 선택 버튼 렌더링 ──────────────────────────────────────────────────────────
+function appendSelectionButtons(selection) {
+  const container = $('chat-history');
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'chat-selection';
+
+  selection.options.forEach((option) => {
+    const btn = document.createElement('button');
+    btn.className   = 'selection-btn';
+    btn.textContent = option.label;
+    btn.addEventListener('click', () => handleSelectionChoice(selection.type, option, wrapper));
+    wrapper.appendChild(btn);
+  });
+
+  container.appendChild(wrapper);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function handleSelectionChoice(type, option, wrapper) {
+  wrapper.querySelectorAll('.selection-btn').forEach((b) => { b.disabled = true; });
+
+  appendBubble('user', option.label);
+
+  const skipAnalysis    = $('skip-analysis').checked;
+  const gender          = $('chat-gender').value.trim();
+  const face_shape      = $('chat-face-shape').value.trim();
+  const face_proportion = $('chat-face-proportion').value.trim();
+  const personal_color  = $('chat-personal-color').value.trim();
+
+  let previous_analysis        = null;
+  let previous_recommendations = [];
+  let user_profile             = {};
+
+  if (!skipAnalysis) {
+    const rawPreviousAnalysis = $('chat-prev-analysis').value.trim();
+    if (rawPreviousAnalysis) {
+      try { previous_analysis = JSON.parse(rawPreviousAnalysis); } catch { previous_analysis = rawPreviousAnalysis; }
+    }
+    try { previous_recommendations = JSON.parse($('chat-prev-recs').value || '[]'); } catch { /* ignore */ }
+  }
+
+  try { user_profile = JSON.parse($('chat-user-profile').value || '{}'); } catch { /* ignore */ }
+
+  const btn = $('btn-chat');
+  setLoading(btn, true, '생성 중...');
+
+  try {
+    const res = await fetch('/api/chatbot', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        user_message: option.label,
+        gender,
+        face_shape,
+        face_proportion,
+        personal_color,
+        previous_analysis,
+        previous_recommendations,
+        user_profile,
+        chat_history: appState.chatHistory,
+        selected_option: { type, id: option.id },
+      }),
+    });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      showError('chatbot-error', data.error || `서버 오류 (HTTP ${res.status})`);
+      return;
+    }
+
+    appendBubble('assistant', data.answer || '(응답 없음)');
+    appState.chatHistory     = data.updated_chat_history || appState.chatHistory;
+    appState.pendingSelection = data.pending_selection || null;
+
+    if (data.updated_user_profile && Object.keys(data.updated_user_profile).length > 0) {
+      $('chat-user-profile').value = JSON.stringify(data.updated_user_profile, null, 2);
+    }
+
+    if (data.selection && data.selection.options && data.selection.options.length > 0) {
+      appendSelectionButtons(data.selection);
+    }
+
+    renderChatResult(data);
+  } catch (e) {
+    showError('chatbot-error', `네트워크 오류: ${e.message}`);
+  } finally {
+    setLoading(btn, false, '챗봇 질문 보내기');
+  }
+}
+
 // ── 대화 초기화 ───────────────────────────────────────────────────────────────
 function resetChat() {
   appState.chatHistory = [];
+  appState.pendingSelection = null;
   $('chat-history').innerHTML = '<div class="chat-empty">대화 기록이 없습니다.</div>';
   $('chatbot-result').classList.add('hidden');
   $('chat-user-profile').value = '{}';

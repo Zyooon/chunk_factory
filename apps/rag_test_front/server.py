@@ -272,6 +272,7 @@ class _RAGTestHandler(BaseHTTPRequestHandler):
                 previous_recommendations=data.get("previous_recommendations"),
                 user_profile=data.get("user_profile"),
                 chat_history=data.get("chat_history"),
+                selected_option=data.get("selected_option"),
             )
             self._send_json(result)
         except KeyError as exc:
